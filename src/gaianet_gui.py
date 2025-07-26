@@ -656,13 +656,20 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         
     def save_config_file(self):
         """保存配置文件"""
+        # 展开路径变量
+        expanded_nodes = []
+        for node in self.nodes_config:
+            expanded_node = node.copy()
+            expanded_node['base_dir'] = self.expand_path(node['base_dir'])
+            expanded_nodes.append(expanded_node)
+        
         config = {
             "shared_services": {
                 "chat_port": 9000,
                 "embedding_port": 9001,
                 "auto_start": True
             },
-            "nodes": self.nodes_config
+            "nodes": expanded_nodes
         }
         
         config_path = self.work_dir / "nodes_config.json"
@@ -833,6 +840,15 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             env = os.environ.copy()
             env['GAIA_WORK_DIR'] = str(self.work_dir)
             
+            print(f"传递给脚本的环境变量 GAIA_WORK_DIR: {env['GAIA_WORK_DIR']}")
+            
+            # 测试脚本是否可以执行（先试试help参数）
+            print(f"测试脚本可执行性...")
+            if not script_path.exists():
+                self.update_status(f"❌ 脚本文件不存在: {script_path}")
+                self.root.after(0, lambda: messagebox.showerror("错误", f"脚本文件不存在:\n{script_path}"))
+                return
+            
             # 跨平台脚本执行
             if sys.platform == "win32":
                 # Windows需要通过bash或Git Bash执行.sh脚本
@@ -877,9 +893,22 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             
             self.update_status(f"命令 '{command}' 执行完成")
             
-            # 显示结果
-            output = result.stdout if result.returncode == 0 else result.stderr
-            self.root.after(0, lambda: self.show_command_result(command, output, result.returncode == 0))
+            # 显示结果 - 更详细的调试信息
+            print(f"脚本返回码: {result.returncode}")
+            print(f"stdout长度: {len(result.stdout)}")
+            print(f"stderr长度: {len(result.stderr)}")
+            print(f"stdout内容: {repr(result.stdout[:200])}")
+            print(f"stderr内容: {repr(result.stderr[:200])}")
+            
+            # 如果返回码不为0但没有stderr，可能是脚本内部错误
+            if result.returncode != 0 and not result.stderr.strip():
+                output = f"脚本执行失败（返回码: {result.returncode}）\n\n可能的原因：\n1. 脚本内部发生了错误但没有输出到stderr\n2. 脚本权限问题\n3. 脚本依赖的命令不存在\n\nstdout输出:\n{result.stdout}\n\n请检查脚本内容和权限。"
+                success = False
+            else:
+                output = result.stdout if result.returncode == 0 else result.stderr
+                success = result.returncode == 0
+                
+            self.root.after(0, lambda: self.show_command_result(command, output, success))
             
         except Exception as e:
             self.update_status(f"❌ 命令执行异常: {str(e)}")
@@ -888,17 +917,57 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
     def show_command_result(self, command, output, success):
         """显示命令执行结果"""
         title = f"命令执行结果: {command}"
-        if success:
-            messagebox.showinfo(title, f"✅ 执行成功!\n\n{output}")
+        
+        # 无论成功失败，都使用详细窗口显示结果
+        if len(output) > 200 or '\n' in output:
+            self.show_detailed_result(title, output, success)
         else:
-            # 显示完整的错误信息
-            error_msg = f"❌ 执行失败!\n\n脚本目录: {self.script_dir}\n脚本存在: {(self.script_dir / 'deploy_multinode_advanced.sh').exists()}\n\n完整错误输出:\n{output}"
-            
-            # 如果错误信息太长，创建一个新窗口显示
-            if len(error_msg) > 1000:
-                self.show_detailed_error(title, error_msg)
+            if success:
+                messagebox.showinfo(title, f"✅ 执行成功!\n\n{output}")
             else:
-                messagebox.showerror(title, error_msg)
+                messagebox.showerror(title, f"❌ 执行失败!\n\n{output}")
+    
+    def show_detailed_result(self, title, content, success):
+        """显示详细结果窗口"""
+        result_window = tk.Toplevel(self.root)
+        result_window.title(title)
+        result_window.geometry("900x700")
+        result_window.resizable(True, True)
+        
+        # 状态标题
+        status_frame = ttk.Frame(result_window)
+        status_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        status_text = "✅ 执行成功!" if success else "❌ 执行失败!"
+        status_color = "green" if success else "red"
+        status_label = ttk.Label(status_frame, text=status_text, font=('Arial', 12, 'bold'))
+        status_label.pack(anchor=tk.W)
+        
+        # 创建滚动文本框
+        text_frame = ttk.Frame(result_window)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        result_text = scrolledtext.ScrolledText(text_frame, wrap=tk.WORD, font=('Monaco', 11))
+        result_text.pack(fill=tk.BOTH, expand=True)
+        result_text.insert(tk.END, content)
+        result_text.config(state=tk.DISABLED)
+        
+        # 按钮框架
+        btn_frame = ttk.Frame(result_window)
+        btn_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Button(btn_frame, text="关闭", command=result_window.destroy).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="复制内容", command=lambda: self.copy_to_clipboard(content)).pack(side=tk.RIGHT, padx=5)
+        
+        # 将窗口置于前台
+        result_window.lift()
+        result_window.focus_force()
+    
+    def copy_to_clipboard(self, text):
+        """复制文本到剪贴板"""
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        messagebox.showinfo("成功", "内容已复制到剪贴板")
     
     def show_detailed_error(self, title, error_msg):
         """显示详细错误信息窗口"""
