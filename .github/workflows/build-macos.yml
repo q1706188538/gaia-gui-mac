@@ -1,0 +1,142 @@
+name: Build macOS App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller pillow
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        
+    - name: Build macOS app
+      run: |
+        # 创建PyInstaller spec文件
+        cat > gaianet_gui.spec << 'EOF'
+        # -*- mode: python ; coding: utf-8 -*-
+
+        block_cipher = None
+
+        a = Analysis(
+            ['src/gaianet_gui.py'],
+            pathex=[],
+            binaries=[],
+            datas=[
+                ('src/*.sh', 'scripts'),
+            ],
+            hiddenimports=[],
+            hookspath=[],
+            hooksconfig={},
+            runtime_hooks=[],
+            excludes=[],
+            win_no_prefer_redirects=False,
+            win_private_assemblies=False,
+            cipher=block_cipher,
+            noarchive=False,
+        )
+
+        pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+        exe = EXE(
+            pyz,
+            a.scripts,
+            [],
+            exclude_binaries=True,
+            name='GaiaNet Manager',
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            upx=True,
+            console=False,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+        )
+
+        coll = COLLECT(
+            exe,
+            a.binaries,
+            a.zipfiles,
+            a.datas,
+            strip=False,
+            upx=True,
+            upx_exclude=[],
+            name='GaiaNet Manager',
+        )
+
+        app = BUNDLE(
+            coll,
+            name='GaiaNet Manager.app',
+            icon=None,
+            bundle_identifier='com.github.q1706188538.gaia-gui-mac',
+            version='1.0.0',
+            info_plist={
+                'CFBundleDisplayName': 'GaiaNet Manager',
+                'CFBundleExecutable': 'GaiaNet Manager',
+                'CFBundleIdentifier': 'com.github.q1706188538.gaia-gui-mac',
+                'CFBundleName': 'GaiaNet Manager',
+                'CFBundleVersion': '1.0.0',
+                'CFBundleShortVersionString': '1.0.0',
+                'NSHighResolutionCapable': True,
+                'NSRequiresAquaSystemAppearance': False,
+            },
+        )
+        EOF
+        
+        # 构建应用
+        pyinstaller gaianet_gui.spec
+        
+    - name: Create distributable package
+      run: |
+        # 创建发布包
+        mkdir -p release
+        
+        # 复制应用到发布目录
+        cp -r "dist/GaiaNet Manager.app" release/
+        
+        # 复制脚本文件到应用内部
+        mkdir -p "release/GaiaNet Manager.app/Contents/Resources/scripts"
+        cp src/*.sh "release/GaiaNet Manager.app/Contents/Resources/scripts/"
+        cp scripts/*.sh "release/GaiaNet Manager.app/Contents/Resources/scripts/"
+        chmod +x "release/GaiaNet Manager.app/Contents/Resources/scripts"/*.sh
+        
+        # 创建zip包
+        cd release
+        zip -r "GaiaNet-Manager-macOS.zip" "GaiaNet Manager.app"
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: GaiaNet-Manager-macOS
+        path: release/GaiaNet-Manager-macOS.zip
+        
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release/GaiaNet-Manager-macOS.zip
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
