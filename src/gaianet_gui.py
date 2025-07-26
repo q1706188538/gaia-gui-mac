@@ -175,6 +175,34 @@ class GaiaNetGUI:
         ttk.Button(quick_frame, text="🎯 一键部署所有节点", 
                   command=self.quick_deploy_all, style='Accent.TButton').grid(row=2, column=0, columnspan=4, pady=10)
         
+        # 安装日志区域
+        log_frame = ttk.LabelFrame(install_frame, text="安装日志", padding=10)
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # 日志控制按钮
+        log_ctrl_frame = ttk.Frame(log_frame)
+        log_ctrl_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Button(log_ctrl_frame, text="🧹 清空日志", 
+                  command=self.clear_install_log).pack(side=tk.LEFT, padx=5)
+        ttk.Button(log_ctrl_frame, text="💾 保存日志", 
+                  command=self.save_install_log).pack(side=tk.LEFT, padx=5)
+        ttk.Button(log_ctrl_frame, text="📋 复制日志", 
+                  command=self.copy_install_log).pack(side=tk.LEFT, padx=5)
+        
+        # 自动滚动选项
+        self.auto_scroll_install = tk.BooleanVar(value=True)
+        ttk.Checkbutton(log_ctrl_frame, text="自动滚动", 
+                       variable=self.auto_scroll_install).pack(side=tk.RIGHT, padx=5)
+        
+        # 日志显示区域
+        self.install_log_text = scrolledtext.ScrolledText(log_frame, height=12, font=('Monaco', 10))
+        self.install_log_text.pack(fill=tk.BOTH, expand=True)
+        
+        # 添加初始欢迎消息
+        self.append_install_log("📦 安装日志已启动")
+        self.append_install_log("💡 点击'安装主节点'开始安装过程")
+        
     def create_config_tab(self):
         """创建节点配置选项卡"""
         config_frame = ttk.Frame(self.notebook)
@@ -189,6 +217,15 @@ class GaiaNetGUI:
         ttk.Button(toolbar, text="📄 导入配置", command=self.import_config).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="💾 导出配置", command=self.export_config).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="🔄 重置默认", command=self.load_default_config).pack(side=tk.LEFT, padx=2)
+        
+        # 显示配置文件路径
+        config_info_frame = ttk.Frame(config_frame)
+        config_info_frame.pack(fill=tk.X, padx=10, pady=2)
+        config_file_path = self.script_dir / "nodes_config.json"
+        ttk.Label(config_info_frame, text=f"📄 配置文件: {config_file_path}", 
+                 font=('Arial', 9), foreground='gray').pack(anchor=tk.W)
+        ttk.Label(config_info_frame, text="💡 修改节点配置后会自动保存到上述文件", 
+                 font=('Arial', 8), foreground='green').pack(anchor=tk.W)
         
         # 节点列表
         list_frame = ttk.LabelFrame(config_frame, text="节点列表", padding=5)
@@ -443,6 +480,9 @@ class GaiaNetGUI:
     def _install_main_node(self):
         """执行主节点安装"""
         try:
+            self.root.after(0, lambda: self.append_install_log("🚀 开始主节点安装过程..."))
+            
+            # 第一步：下载并运行官方安装脚本
             install_script = """
 #!/bin/bash
 set -e
@@ -454,19 +494,115 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             cmd = ["bash", "-c", install_script]
             if self.reinstall_var.get():
                 cmd = ["bash", "-c", install_script + " --reinstall"]
+                self.root.after(0, lambda: self.append_install_log("🔄 使用重新安装模式"))
                 
-            result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.expanduser("~"))
+            self.update_status("📦 步骤1/2: 安装GaiaNet程序...")
+            self.root.after(0, lambda: self.append_install_log("📦 步骤1/2: 安装GaiaNet程序..."))
+            self.root.after(0, lambda: self.append_install_log(f"📋 执行命令: {' '.join(cmd)}"))
             
-            if result.returncode == 0:
-                self.update_status("✅ 主节点安装成功！")
-                messagebox.showinfo("成功", "主节点安装完成！\n\n现在可以配置从节点并进行部署。")
+            # 使用subprocess.Popen进行实时输出
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1,
+                cwd=os.path.expanduser("~")
+            )
+            
+            # 实时读取输出
+            install_output = []
+            while True:
+                line = process.stdout.readline()
+                if line:
+                    line = line.rstrip('\n\r')
+                    install_output.append(line)
+                    # 实时显示到安装日志
+                    self.root.after(0, lambda l=line: self.append_install_log(f"    {l}"))
+                elif process.poll() is not None:
+                    break
+            
+            # 等待进程完成
+            return_code = process.wait()
+            
+            if return_code != 0:
+                error_msg = f"程序安装失败（返回码: {return_code}）"
+                self.update_status(f"❌ {error_msg}")
+                self.root.after(0, lambda: self.append_install_log(f"❌ {error_msg}"))
+                self.root.after(0, lambda: messagebox.showerror("错误", f"{error_msg}\n\n详细日志请查看安装日志区域"))
+                return
+            
+            self.root.after(0, lambda: self.append_install_log("✅ 程序安装完成"))
+            
+            # 第二步：运行gaianet init下载模型文件
+            self.update_status("📥 步骤2/2: 下载模型文件（这可能需要几分钟）...")
+            self.root.after(0, lambda: self.append_install_log("📥 步骤2/2: 下载模型文件（这可能需要几分钟）..."))
+            
+            # 检查gaianet程序是否存在
+            gaianet_path = os.path.expanduser("~/gaianet/bin/gaianet")
+            if not os.path.exists(gaianet_path):
+                error_msg = f"gaianet程序未找到: {gaianet_path}"
+                self.update_status(f"❌ {error_msg}")
+                self.root.after(0, lambda: self.append_install_log(f"❌ {error_msg}"))
+                self.root.after(0, lambda: messagebox.showerror("错误", error_msg))
+                return
+            
+            self.root.after(0, lambda: self.append_install_log(f"✅ 找到gaianet程序: {gaianet_path}"))
+            
+            # 运行gaianet init（使用绝对路径）
+            init_cmd = [gaianet_path, "init"]
+            
+            # 设置环境变量，确保能找到相关程序
+            env = os.environ.copy()
+            gaianet_bin_dir = os.path.expanduser("~/gaianet/bin")
+            if gaianet_bin_dir not in env.get('PATH', ''):
+                env['PATH'] = gaianet_bin_dir + ':' + env.get('PATH', '')
+            
+            self.root.after(0, lambda: self.append_install_log(f"📋 执行命令: {' '.join(init_cmd)}"))
+            
+            # 使用subprocess.Popen进行实时输出
+            init_process = subprocess.Popen(
+                init_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1,
+                cwd=os.path.expanduser("~/gaianet"),
+                env=env
+            )
+            
+            # 实时读取输出
+            init_output = []
+            while True:
+                line = init_process.stdout.readline()
+                if line:
+                    line = line.rstrip('\n\r')
+                    init_output.append(line)
+                    # 实时显示到安装日志
+                    self.root.after(0, lambda l=line: self.append_install_log(f"    {l}"))
+                elif init_process.poll() is not None:
+                    break
+            
+            # 等待进程完成
+            init_return_code = init_process.wait()
+            
+            if init_return_code == 0:
+                success_msg = "✅ 主节点安装成功（包含模型文件）！"
+                self.update_status(success_msg)
+                self.root.after(0, lambda: self.append_install_log(success_msg))
+                self.root.after(0, lambda: self.append_install_log("🎉 安装过程完全完成"))
+                self.root.after(0, lambda: messagebox.showinfo("成功", "主节点安装完成！\n\n✅ 程序已安装\n✅ 模型文件已下载\n\n现在可以配置从节点并进行部署。"))
             else:
-                self.update_status(f"❌ 主节点安装失败: {result.stderr}")
-                messagebox.showerror("错误", f"安装失败:\n{result.stderr}")
+                error_msg = f"模型下载失败（返回码: {init_return_code}）"
+                self.update_status(f"❌ {error_msg}")
+                self.root.after(0, lambda: self.append_install_log(f"❌ {error_msg}"))
+                self.root.after(0, lambda: messagebox.showerror("错误", f"{error_msg}\n\n程序已安装，但模型文件下载失败。\n请手动运行: ~/gaianet/bin/gaianet init\n\n详细日志请查看安装日志区域"))
                 
         except Exception as e:
-            self.update_status(f"❌ 安装异常: {str(e)}")
-            messagebox.showerror("错误", f"安装过程中发生异常:\n{str(e)}")
+            error_msg = f"安装异常: {str(e)}"
+            self.update_status(f"❌ {error_msg}")
+            self.root.after(0, lambda: self.append_install_log(f"❌ {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"安装过程中发生异常:\n{str(e)}"))
             
     def check_install_status(self):
         """检查安装状态"""
@@ -493,9 +629,16 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             
             # 检查系统 PATH 中的 wasmedge
             wasmedge_found = False
+            
+            # 设置包含gaianet路径的环境
+            env = os.environ.copy()
+            gaianet_bin_dir = os.path.expanduser("~/gaianet/bin")
+            if gaianet_bin_dir not in env.get('PATH', ''):
+                env['PATH'] = gaianet_bin_dir + ':' + env.get('PATH', '')
+            
             try:
                 result = subprocess.run(["wasmedge", "--version"], 
-                                      capture_output=True, text=True, timeout=5)
+                                      capture_output=True, text=True, timeout=5, env=env)
                 if result.returncode == 0:
                     version = result.stdout.strip().split('\n')[0]
                     status_info.append(f"✅ wasmedge (系统PATH): 已安装 ({version})")
@@ -625,9 +768,12 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             
         # 添加节点
         for i, node in enumerate(self.nodes_config):
+            # 显示展开后的路径
+            display_path = self.expand_path(node['base_dir'])
+            
             self.tree.insert('', 'end', iid=i, text=str(i+1), values=(
                 node['name'],
-                node['base_dir'],
+                display_path,  # 显示展开后的路径
                 node['port'],
                 "否" if node['local_only'] else "是",
                 "是" if node['force_rag'] else "否",
@@ -652,6 +798,8 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         
         self.nodes_config.append(new_node)
         self.update_tree()
+        # 自动保存到文件
+        self.save_config_file()
         
         # 选中新添加的节点
         self.tree.selection_set(len(self.nodes_config)-1)
@@ -670,6 +818,8 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             del self.nodes_config[index]
             self.update_tree()
             self.reset_node_form()
+            # 自动保存到文件
+            self.save_config_file()
             
     def on_node_select(self, event):
         """节点选择事件"""
@@ -678,9 +828,9 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             index = int(selection[0])
             node = self.nodes_config[index]
             
-            # 更新表单
+            # 更新表单 - 显示展开后的路径
             self.node_name_var.set(node['name'])
-            self.node_path_var.set(node['base_dir'])
+            self.node_path_var.set(self.expand_path(node['base_dir']))  # 显示展开路径
             self.node_port_var.set(node['port'])
             self.node_local_only_var.set(node['local_only'])
             self.node_force_rag_var.set(node['force_rag'])
@@ -706,11 +856,25 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             if i != index and node['port'] == port:
                 messagebox.showerror("错误", f"端口 {port} 已被节点 {node['name']} 使用")
                 return
+        
+        # 处理路径：如果是用户主目录下的路径，转换为$HOME格式
+        entered_path = self.node_path_var.get()
+        home_path = os.path.expanduser('~')
+        
+        if entered_path.startswith(home_path):
+            # 转换为$HOME格式保存
+            relative_path = entered_path[len(home_path):]
+            if relative_path.startswith('/'):
+                relative_path = relative_path[1:]
+            stored_path = f"$HOME/{relative_path}" if relative_path else "$HOME"
+        else:
+            # 非用户目录，直接保存绝对路径
+            stored_path = entered_path
                 
         # 更新配置
         self.nodes_config[index] = {
             "name": self.node_name_var.get(),
-            "base_dir": self.node_path_var.get(),
+            "base_dir": stored_path,  # 使用处理后的路径
             "port": port,
             "local_only": self.node_local_only_var.get(),
             "force_rag": self.node_force_rag_var.get(),
@@ -718,7 +882,9 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         }
         
         self.update_tree()
-        messagebox.showinfo("成功", "节点配置已保存")
+        # 自动保存配置到文件
+        self.save_config_file()
+        messagebox.showinfo("成功", "节点配置已保存并同步到文件")
         
     def reset_node_form(self):
         """重置表单"""
@@ -776,7 +942,9 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
                 if 'nodes' in config:
                     self.nodes_config = config['nodes']
                     self.update_tree()
-                    messagebox.showinfo("成功", "配置导入成功")
+                    # 自动保存到文件（同步到脚本目录）
+                    self.save_config_file()
+                    messagebox.showinfo("成功", "配置导入成功并已同步")
                 else:
                     messagebox.showerror("错误", "配置文件格式不正确")
                     
@@ -1162,6 +1330,62 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             self.mgmt_log_text.delete(1.0, f"{len(lines)-1000}.0")
         
         self.mgmt_log_text.update_idletasks()
+    
+    def append_install_log(self, message):
+        """添加消息到安装日志"""
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}\n"
+        
+        self.install_log_text.insert(tk.END, formatted_message)
+        
+        # 自动滚动到底部
+        if self.auto_scroll_install.get():
+            self.install_log_text.see(tk.END)
+            
+        # 限制日志长度，保留最近1000行
+        lines = self.install_log_text.get(1.0, tk.END).split('\n')
+        if len(lines) > 1000:
+            self.install_log_text.delete(1.0, f"{len(lines)-1000}.0")
+        
+        self.install_log_text.update_idletasks()
+    
+    def clear_install_log(self):
+        """清空安装日志"""
+        self.install_log_text.delete(1.0, tk.END)
+        self.append_install_log("📋 安装日志已清空")
+    
+    def save_install_log(self):
+        """保存安装日志"""
+        content = self.install_log_text.get(1.0, tk.END)
+        if not content.strip():
+            messagebox.showwarning("警告", "日志为空，无需保存")
+            return
+            
+        from datetime import datetime
+        filename = f"install_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        file_path = filedialog.asksaveasfilename(
+            title="保存安装日志",
+            defaultextension=".txt",
+            initialname=filename,
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                messagebox.showinfo("成功", f"安装日志已保存到: {file_path}")
+            except Exception as e:
+                messagebox.showerror("错误", f"保存失败: {str(e)}")
+    
+    def copy_install_log(self):
+        """复制安装日志"""
+        content = self.install_log_text.get(1.0, tk.END)
+        if not content.strip():
+            messagebox.showwarning("警告", "日志为空，无法复制")
+            return
+        self.copy_to_clipboard(content)
     
     def show_detailed_error(self, title, error_msg):
         """显示详细错误信息窗口"""
