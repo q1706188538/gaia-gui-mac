@@ -41,16 +41,21 @@ class GaiaNetGUI:
                 # macOS应用包结构: .app/Contents/Resources/scripts/
                 app_path = Path(sys.executable).parent.parent
                 self.script_dir = app_path / "Resources" / "scripts"
+                # GUI运行目录（用于保存用户文件）
+                self.work_dir = Path.cwd()
             else:
                 # Windows/Linux打包环境
                 self.script_dir = Path(sys.executable).parent / "scripts"
+                self.work_dir = Path(sys.executable).parent
         else:
             # 开发环境
             self.script_dir = Path(__file__).parent
+            self.work_dir = Path(__file__).parent
         
         # 调试信息：输出脚本目录
         print(f"脚本目录: {self.script_dir}")
         print(f"脚本目录是否存在: {self.script_dir.exists()}")
+        print(f"工作目录: {self.work_dir}")
         if self.script_dir.exists():
             print(f"脚本目录内容: {list(self.script_dir.glob('*'))}")
         
@@ -60,6 +65,12 @@ class GaiaNetGUI:
         # 创建界面
         self.create_widgets()
         self.load_default_config()
+        
+    def expand_path(self, path_str):
+        """展开路径变量（$HOME等）"""
+        if path_str.startswith('$HOME'):
+            return path_str.replace('$HOME', os.path.expanduser('~'))
+        return os.path.expanduser(path_str)
         
     def create_widgets(self):
         """创建主界面组件"""
@@ -654,7 +665,7 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             "nodes": self.nodes_config
         }
         
-        config_path = self.script_dir / "nodes_config.json"
+        config_path = self.work_dir / "nodes_config.json"
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
             
@@ -811,6 +822,17 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         try:
             script_path = self.script_dir / "deploy_multinode_advanced.sh"
             
+            # 调试信息
+            print(f"执行脚本: {script_path}")
+            print(f"脚本存在: {script_path.exists()}")
+            print(f"工作目录: {self.work_dir}")
+            if script_path.exists():
+                print(f"脚本权限: {oct(script_path.stat().st_mode)}")
+            
+            # 设置环境变量，告诉脚本工作目录
+            env = os.environ.copy()
+            env['GAIA_WORK_DIR'] = str(self.work_dir)
+            
             # 跨平台脚本执行
             if sys.platform == "win32":
                 # Windows需要通过bash或Git Bash执行.sh脚本
@@ -836,7 +858,7 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
                     # 将Windows路径转换为Unix风格路径给bash使用
                     unix_script_path = str(script_path).replace('\\', '/').replace('C:', '/c')
                     result = subprocess.run([bash_exe, unix_script_path, command], 
-                                          capture_output=True, text=True)
+                                          capture_output=True, text=True, env=env)
                 else:
                     # 如果没有bash，显示提示信息
                     self.update_status("❌ Windows系统需要安装Git Bash来运行脚本")
@@ -845,8 +867,13 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
                     return
             else:
                 # macOS/Linux直接执行
+                # 确保脚本有执行权限
+                if script_path.exists():
+                    import stat
+                    script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC)
+                
                 result = subprocess.run([str(script_path), command], 
-                                      capture_output=True, text=True)
+                                      capture_output=True, text=True, env=env)
             
             self.update_status(f"命令 '{command}' 执行完成")
             
@@ -862,11 +889,35 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         """显示命令执行结果"""
         title = f"命令执行结果: {command}"
         if success:
-            messagebox.showinfo(title, f"✅ 执行成功!\n\n{output[:1000]}...")
+            messagebox.showinfo(title, f"✅ 执行成功!\n\n{output}")
         else:
-            # 显示更详细的错误信息
-            error_msg = f"❌ 执行失败!\n\n脚本目录: {self.script_dir}\n脚本存在: {(self.script_dir / 'deploy_multinode_advanced.sh').exists()}\n\n错误输出:\n{output[:1000]}..."
-            messagebox.showerror(title, error_msg)
+            # 显示完整的错误信息
+            error_msg = f"❌ 执行失败!\n\n脚本目录: {self.script_dir}\n脚本存在: {(self.script_dir / 'deploy_multinode_advanced.sh').exists()}\n\n完整错误输出:\n{output}"
+            
+            # 如果错误信息太长，创建一个新窗口显示
+            if len(error_msg) > 1000:
+                self.show_detailed_error(title, error_msg)
+            else:
+                messagebox.showerror(title, error_msg)
+    
+    def show_detailed_error(self, title, error_msg):
+        """显示详细错误信息窗口"""
+        error_window = tk.Toplevel(self.root)
+        error_window.title(title)
+        error_window.geometry("800x600")
+        error_window.resizable(True, True)
+        
+        # 创建滚动文本框
+        text_frame = ttk.Frame(error_window)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        error_text = scrolledtext.ScrolledText(text_frame, wrap=tk.WORD, font=('Courier', 10))
+        error_text.pack(fill=tk.BOTH, expand=True)
+        error_text.insert(tk.END, error_msg)
+        error_text.config(state=tk.DISABLED)
+        
+        # 添加关闭按钮
+        ttk.Button(error_window, text="关闭", command=error_window.destroy).pack(pady=10)
             
     # 状态管理方法
     def refresh_status(self):
@@ -994,7 +1045,7 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
                 node_name = selected.split()[0]
                 for node in self.nodes_config:
                     if node['name'] == node_name:
-                        log_dir = os.path.expanduser(node['base_dir'].replace('$HOME', '~') + "/log")
+                        log_dir = self.expand_path(node['base_dir']) + "/log"
                         break
                 else:
                     messagebox.showerror("错误", "未找到对应的节点配置")
@@ -1043,7 +1094,7 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
                 node_name = selected.split()[0]
                 for node in self.nodes_config:
                     if node['name'] == node_name:
-                        log_dir = os.path.expanduser(node['base_dir'].replace('$HOME', '~') + "/log")
+                        log_dir = self.expand_path(node['base_dir']) + "/log"
                         break
                 else:
                     messagebox.showerror("错误", "未找到对应的节点配置")
