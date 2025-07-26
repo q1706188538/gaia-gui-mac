@@ -478,15 +478,35 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
                     
             # 检查 wasmedge 运行时
             status_info.append("\n=== 运行时依赖检查 ===")
+            
+            # 检查系统 PATH 中的 wasmedge
+            wasmedge_found = False
             try:
                 result = subprocess.run(["wasmedge", "--version"], 
                                       capture_output=True, text=True, timeout=5)
                 if result.returncode == 0:
                     version = result.stdout.strip().split('\n')[0]
-                    status_info.append(f"✅ wasmedge: 已安装 ({version})")
-                else:
-                    status_info.append("❌ wasmedge: 未正确安装")
+                    status_info.append(f"✅ wasmedge (系统PATH): 已安装 ({version})")
+                    wasmedge_found = True
             except:
+                pass
+            
+            # 检查用户目录中的 wasmedge
+            if not wasmedge_found:
+                wasmedge_path = os.path.expanduser("~/.wasmedge/bin/wasmedge")
+                if os.path.exists(wasmedge_path):
+                    try:
+                        result = subprocess.run([wasmedge_path, "--version"], 
+                                              capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0:
+                            version = result.stdout.strip().split('\n')[0]
+                            status_info.append(f"✅ wasmedge (用户目录): 已安装 ({version})")
+                            status_info.append(f"    路径: {wasmedge_path}")
+                            wasmedge_found = True
+                    except:
+                        pass
+            
+            if not wasmedge_found:
                 status_info.append("❌ wasmedge: 未安装或不在PATH中")
                 status_info.append("💡 请运行主节点安装或手动安装 wasmedge")
                 
@@ -890,7 +910,16 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             env = os.environ.copy()
             env['GAIA_WORK_DIR'] = str(self.work_dir)
             
+            # 确保 wasmedge 在 PATH 中 (macOS 特别处理)
+            if sys.platform == "darwin":
+                wasmedge_path = os.path.expanduser("~/.wasmedge/bin")
+                if os.path.exists(wasmedge_path):
+                    if wasmedge_path not in env.get('PATH', ''):
+                        env['PATH'] = wasmedge_path + ':' + env.get('PATH', '')
+                        print(f"添加 wasmedge 路径到 PATH: {wasmedge_path}")
+            
             print(f"传递给脚本的环境变量 GAIA_WORK_DIR: {env['GAIA_WORK_DIR']}")
+            print(f"当前 PATH 包含: {env.get('PATH', '')[:200]}...")
             
             # 测试脚本是否可以执行（先试试help参数）
             print(f"测试脚本可执行性...")
