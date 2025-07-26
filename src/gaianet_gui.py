@@ -332,7 +332,19 @@ class GaiaNetGUI:
         self.status_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # 显示初始欢迎信息而不是立即检查状态
-        self.update_status_display("📋 系统状态检查器已就绪\n\n💡 点击 '🔄 刷新状态' 按钮获取最新状态信息\n💡 点击 '⚡ 快速检查' 进行节点健康检查\n💡 启用 '自动刷新' 可每30秒自动更新状态")
+        welcome_msg = """📋 系统状态检查器已就绪
+
+💡 使用说明：
+• 点击 '🔄 刷新状态' 获取完整系统状态
+• 点击 '⚡ 快速检查' 进行节点健康检查  
+• 启用 '自动刷新' 可每30秒自动更新状态
+
+📌 重要提示：
+• 本系统采用共享服务架构，主节点(8080)不需要运行
+• 实际运行的是共享服务 + 从节点(8081/8082/8083)
+• 如果看到"主节点异常"这是正常现象，请关注从节点状态"""
+
+        self.update_status_display(welcome_msg)
         
     def create_log_tab(self):
         """创建日志查看选项卡"""
@@ -745,6 +757,10 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         for node in expanded_nodes:
             print(f"  {node['name']}: {node['base_dir']}")
             
+        # 显示保存的配置文件内容
+        print("完整配置文件内容:")
+        print(json.dumps(config, indent=2, ensure_ascii=False))
+            
     def import_config(self):
         """导入配置"""
         file_path = filedialog.askopenfilename(
@@ -931,7 +947,6 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             # 跨平台脚本执行
             if sys.platform == "win32":
                 # Windows需要通过bash或Git Bash执行.sh脚本
-                # 首先检查是否有Git Bash
                 bash_paths = [
                     "C:\\Program Files\\Git\\bin\\bash.exe",
                     "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
@@ -950,61 +965,96 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
                         continue
                 
                 if bash_exe:
-                    # 将Windows路径转换为Unix风格路径给bash使用
                     unix_script_path = str(script_path).replace('\\', '/').replace('C:', '/c')
-                    result = subprocess.run([bash_exe, unix_script_path, command], 
-                                          capture_output=True, text=True, env=env)
+                    cmd = [bash_exe, unix_script_path, command]
                 else:
-                    # 如果没有bash，显示提示信息
                     self.update_status("❌ Windows系统需要安装Git Bash来运行脚本")
                     self.root.after(0, lambda: messagebox.showerror("错误", 
                         "Windows系统需要安装Git Bash来运行shell脚本。\n请安装Git for Windows。"))
                     return
             else:
                 # macOS/Linux直接执行
-                # 确保脚本有执行权限
                 if script_path.exists():
                     import stat
                     script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC)
                 
-                result = subprocess.run([str(script_path), command], 
-                                      capture_output=True, text=True, env=env)
+                cmd = [str(script_path), command]
+            
+            # 实时执行并输出
+            self.root.after(0, lambda: self.append_mgmt_log(f"📋 执行命令: {' '.join(cmd)}"))
+            
+            # 检查配置文件状态
+            config_file_path = self.script_dir / "nodes_config.json"
+            if config_file_path.exists():
+                self.root.after(0, lambda: self.append_mgmt_log(f"✅ 配置文件存在: {config_file_path}"))
+                try:
+                    with open(config_file_path, 'r', encoding='utf-8') as f:
+                        config_content = f.read()
+                    self.root.after(0, lambda: self.append_mgmt_log(f"📄 配置文件大小: {len(config_content)} 字节"))
+                    # 显示配置文件的前200个字符
+                    preview = config_content[:200] + "..." if len(config_content) > 200 else config_content
+                    self.root.after(0, lambda: self.append_mgmt_log(f"📄 配置文件预览: {preview}"))
+                except Exception as e:
+                    self.root.after(0, lambda: self.append_mgmt_log(f"❌ 读取配置文件失败: {e}"))
+            else:
+                self.root.after(0, lambda: self.append_mgmt_log(f"❌ 配置文件不存在: {config_file_path}"))
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # 合并stderr到stdout
+                universal_newlines=True,
+                bufsize=1,
+                env=env
+            )
+            
+            # 实时读取输出
+            output_lines = []
+            while True:
+                line = process.stdout.readline()
+                if line:
+                    line = line.rstrip('\n\r')
+                    output_lines.append(line)
+                    # 实时显示到日志
+                    self.root.after(0, lambda l=line: self.append_mgmt_log(f"    {l}"))
+                elif process.poll() is not None:
+                    break
+            
+            # 等待进程完成
+            return_code = process.wait()
             
             self.update_status(f"命令 '{command}' 执行完成")
             
-            # 显示结果 - 更详细的调试信息
-            print(f"脚本返回码: {result.returncode}")
-            print(f"stdout长度: {len(result.stdout)}")
-            print(f"stderr长度: {len(result.stderr)}")
-            print(f"stdout内容: {repr(result.stdout[:200])}")
-            print(f"stderr内容: {repr(result.stderr[:200])}")
+            output = '\n'.join(output_lines)
             
-            # 如果返回码不为0但没有stderr，可能是脚本内部错误
-            if result.returncode != 0 and not result.stderr.strip():
-                output = f"脚本执行失败（返回码: {result.returncode}）\n\n可能的原因：\n1. 脚本内部发生了错误但没有输出到stderr\n2. 脚本权限问题\n3. 脚本依赖的命令不存在\n\nstdout输出:\n{result.stdout}\n\n请检查脚本内容和权限。"
-                success = False
+            # 判断执行结果
+            if return_code != 0 and not output.strip():
+                if command == 'stop' and return_code == 1:
+                    output = "🛑 停止操作完成\n💡 返回码1通常表示没有运行的节点需要停止，这是正常情况。"
+                    success = True
+                else:
+                    output = f"脚本执行失败（返回码: {return_code}）\n\n可能的原因：\n1. 脚本内部发生了错误但没有输出\n2. 脚本权限问题\n3. 脚本依赖的命令不存在"
+                    success = False
             else:
-                output = result.stdout if result.returncode == 0 else result.stderr
-                success = result.returncode == 0
+                success = return_code == 0
                 
+            # 记录最终结果到日志
+            status_icon = "✅" if success else "❌"
+            self.root.after(0, lambda: self.append_mgmt_log(f"{status_icon} 命令 '{command}' {'执行成功' if success else '执行失败'}"))
+            
+            # 仍然显示详细结果窗口
             self.root.after(0, lambda: self.show_command_result(command, output, success))
             
         except Exception as e:
             self.update_status(f"❌ 命令执行异常: {str(e)}")
+            self.root.after(0, lambda: self.append_mgmt_log(f"❌ 执行异常: {str(e)}"))
             self.root.after(0, lambda: messagebox.showerror("错误", f"命令执行异常:\n{str(e)}"))
             
     def show_command_result(self, command, output, success):
         """显示命令执行结果"""
         title = f"命令执行结果: {command}"
         
-        # 同时输出到管理日志
-        status_icon = "✅" if success else "❌"
-        self.append_mgmt_log(f"{status_icon} 命令 '{command}' {'执行成功' if success else '执行失败'}")
-        if output.strip():
-            # 将多行输出按行添加到日志
-            for line in output.strip().split('\n'):
-                if line.strip():
-                    self.append_mgmt_log(f"    {line}")
+        # 注意：输出已经实时显示在管理日志中了，这里只显示详细窗口
         
         # 无论成功失败，都使用详细窗口显示结果
         if len(output) > 200 or '\n' in output:
@@ -1170,6 +1220,18 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         """更新状态显示"""
         self.status_text.delete(1.0, tk.END)
         self.status_text.insert(1.0, content)
+        
+        # 如果包含系统状态信息，添加解释
+        if "节点服务状态" in content and "主节点" in content and "异常" in content:
+            explanation = "\n\n" + "="*50 + "\n"
+            explanation += "📊 状态解释说明:\n"
+            explanation += "• 主节点异常是正常现象 - 本系统使用共享服务架构\n"
+            explanation += "• 关注要点：共享服务状态 + 从节点状态\n"
+            explanation += "• 从节点正常运行即表示系统工作正常\n"
+            explanation += "• 内存节省显示了共享架构的优势\n"
+            explanation += "="*50
+            self.status_text.insert(tk.END, explanation)
+        
         self.status_text.see(1.0)
         
     def quick_health_check(self):
