@@ -862,9 +862,11 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         """显示命令执行结果"""
         title = f"命令执行结果: {command}"
         if success:
-            messagebox.showinfo(title, f"✅ 执行成功!\n\n{output[:500]}...")
+            messagebox.showinfo(title, f"✅ 执行成功!\n\n{output[:1000]}...")
         else:
-            messagebox.showerror(title, f"❌ 执行失败!\n\n{output[:500]}...")
+            # 显示更详细的错误信息
+            error_msg = f"❌ 执行失败!\n\n脚本目录: {self.script_dir}\n脚本存在: {(self.script_dir / 'deploy_multinode_advanced.sh').exists()}\n\n错误输出:\n{output[:1000]}..."
+            messagebox.showerror(title, error_msg)
             
     # 状态管理方法
     def refresh_status(self):
@@ -878,6 +880,16 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         """执行状态刷新"""
         try:
             script_path = self.script_dir / "check_system_status.sh"
+            
+            # 调试信息
+            print(f"查找状态脚本: {script_path}")
+            print(f"脚本存在: {script_path.exists()}")
+            
+            if not script_path.exists():
+                error_msg = f"状态检查脚本不存在:\n{script_path}\n\n脚本目录: {self.script_dir}\n目录内容: {list(self.script_dir.glob('*')) if self.script_dir.exists() else '目录不存在'}"
+                self.root.after(0, lambda: self.update_status_display(error_msg))
+                return
+            
             result = subprocess.run([str(script_path), "full"], 
                                   capture_output=True, text=True)
             
