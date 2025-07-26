@@ -34,7 +34,26 @@ class GaiaNetGUI:
             style.theme_use('clam')
         
         # 初始化变量
-        self.script_dir = Path(__file__).parent
+        # 检测是否在PyInstaller打包环境中
+        if getattr(sys, 'frozen', False):
+            # 打包后的环境
+            if sys.platform == "darwin":  # macOS
+                # macOS应用包结构: .app/Contents/Resources/scripts/
+                app_path = Path(sys.executable).parent.parent
+                self.script_dir = app_path / "Resources" / "scripts"
+            else:
+                # Windows/Linux打包环境
+                self.script_dir = Path(sys.executable).parent / "scripts"
+        else:
+            # 开发环境
+            self.script_dir = Path(__file__).parent
+        
+        # 调试信息：输出脚本目录
+        print(f"脚本目录: {self.script_dir}")
+        print(f"脚本目录是否存在: {self.script_dir.exists()}")
+        if self.script_dir.exists():
+            print(f"脚本目录内容: {list(self.script_dir.glob('*'))}")
+        
         self.nodes_config = []
         self.is_running = False
         
