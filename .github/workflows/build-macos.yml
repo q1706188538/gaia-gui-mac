@@ -42,8 +42,9 @@ jobs:
             binaries=[],
             datas=[
                 ('src/*.sh', 'scripts'),
+                ('scripts/*.sh', 'scripts'),
             ],
-            hiddenimports=[],
+            hiddenimports=['tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog'],
             hookspath=[],
             hooksconfig={},
             runtime_hooks=[],
@@ -62,13 +63,13 @@ jobs:
             [],
             exclude_binaries=True,
             name='GaiaNet Manager',
-            debug=False,
+            debug=True,
             bootloader_ignore_signals=False,
             strip=False,
-            upx=True,
-            console=False,
+            upx=False,
+            console=True,
             disable_windowed_traceback=False,
-            argv_emulation=False,
+            argv_emulation=True,
             target_arch=None,
             codesign_identity=None,
             entitlements_file=None,
@@ -80,7 +81,7 @@ jobs:
             a.zipfiles,
             a.datas,
             strip=False,
-            upx=True,
+            upx=False,
             upx_exclude=[],
             name='GaiaNet Manager',
         )
@@ -100,12 +101,20 @@ jobs:
                 'CFBundleShortVersionString': '1.0.0',
                 'NSHighResolutionCapable': True,
                 'NSRequiresAquaSystemAppearance': False,
+                'LSUIElement': False,
+                'CFBundlePackageType': 'APPL',
             },
         )
         EOF
         
         # 构建应用
         pyinstaller gaianet_gui.spec
+        
+        # 设置权限
+        chmod +x "dist/GaiaNet Manager.app/Contents/MacOS/GaiaNet Manager"
+        
+        # 移除隔离属性 (用于开发测试)
+        xattr -cr "dist/GaiaNet Manager.app"
         
     - name: Create distributable package
       run: |
