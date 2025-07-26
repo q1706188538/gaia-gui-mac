@@ -57,3 +57,7 @@ nodes_config.json
 # Local test files
 test_*
 debug_*
+
+# SpecStory and Cursor files
+.specstory/
+.cursorindexingignore
