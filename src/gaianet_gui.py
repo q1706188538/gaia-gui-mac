@@ -278,6 +278,34 @@ class GaiaNetGUI:
         self.progress_bar = ttk.Progressbar(progress_frame, mode='indeterminate')
         self.progress_bar.pack(fill=tk.X, pady=5)
         
+        # 操作日志区域
+        log_frame = ttk.LabelFrame(mgmt_frame, text="操作日志", padding=10)
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # 日志控制按钮
+        log_ctrl_frame = ttk.Frame(log_frame)
+        log_ctrl_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Button(log_ctrl_frame, text="🧹 清空日志", 
+                  command=self.clear_mgmt_log).pack(side=tk.LEFT, padx=5)
+        ttk.Button(log_ctrl_frame, text="💾 保存日志", 
+                  command=self.save_mgmt_log).pack(side=tk.LEFT, padx=5)
+        ttk.Button(log_ctrl_frame, text="📋 复制日志", 
+                  command=self.copy_mgmt_log).pack(side=tk.LEFT, padx=5)
+        
+        # 自动滚动选项
+        self.auto_scroll_mgmt = tk.BooleanVar(value=True)
+        ttk.Checkbutton(log_ctrl_frame, text="自动滚动", 
+                       variable=self.auto_scroll_mgmt).pack(side=tk.RIGHT, padx=5)
+        
+        # 日志显示区域
+        self.mgmt_log_text = scrolledtext.ScrolledText(log_frame, height=15, font=('Monaco', 10))
+        self.mgmt_log_text.pack(fill=tk.BOTH, expand=True)
+        
+        # 添加初始欢迎消息
+        self.append_mgmt_log("🎛️ 系统管理日志已启动")
+        self.append_mgmt_log("💡 所有操作的详细信息都会显示在这里")
+        
     def create_status_tab(self):
         """创建系统状态选项卡"""
         status_frame = ttk.Frame(self.notebook)
@@ -303,8 +331,8 @@ class GaiaNetGUI:
         self.status_text = scrolledtext.ScrolledText(status_frame, height=25, font=('Monaco', 11))
         self.status_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # 初始加载状态
-        self.refresh_status()
+        # 显示初始欢迎信息而不是立即检查状态
+        self.update_status_display("📋 系统状态检查器已就绪\n\n💡 点击 '🔄 刷新状态' 按钮获取最新状态信息\n💡 点击 '⚡ 快速检查' 进行节点健康检查\n💡 启用 '自动刷新' 可每30秒自动更新状态")
         
     def create_log_tab(self):
         """创建日志查看选项卡"""
@@ -447,6 +475,21 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
                     status_info.append(f"✅ {file}: 存在")
                 else:
                     status_info.append(f"❌ {file}: 缺失")
+                    
+            # 检查 wasmedge 运行时
+            status_info.append("\n=== 运行时依赖检查 ===")
+            try:
+                result = subprocess.run(["wasmedge", "--version"], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    version = result.stdout.strip().split('\n')[0]
+                    status_info.append(f"✅ wasmedge: 已安装 ({version})")
+                else:
+                    status_info.append("❌ wasmedge: 未正确安装")
+            except:
+                status_info.append("❌ wasmedge: 未安装或不在PATH中")
+                status_info.append("💡 请运行主节点安装或手动安装 wasmedge")
+                
         else:
             status_info.append(f"❌ 主节点目录不存在: {main_path}")
             status_info.append("\n💡 请先运行主节点安装")
@@ -756,6 +799,7 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             messagebox.showwarning("警告", "有操作正在进行中，请稍候...")
             return
             
+        self.save_config_file()
         self.run_async_operation("停止节点中...", self._run_script_command, "stop")
         
     def restart_all_nodes(self):
@@ -924,6 +968,15 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         """显示命令执行结果"""
         title = f"命令执行结果: {command}"
         
+        # 同时输出到管理日志
+        status_icon = "✅" if success else "❌"
+        self.append_mgmt_log(f"{status_icon} 命令 '{command}' {'执行成功' if success else '执行失败'}")
+        if output.strip():
+            # 将多行输出按行添加到日志
+            for line in output.strip().split('\n'):
+                if line.strip():
+                    self.append_mgmt_log(f"    {line}")
+        
         # 无论成功失败，都使用详细窗口显示结果
         if len(output) > 200 or '\n' in output:
             self.show_detailed_result(title, output, success)
@@ -974,6 +1027,62 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
         messagebox.showinfo("成功", "内容已复制到剪贴板")
+    
+    def clear_mgmt_log(self):
+        """清空管理日志"""
+        self.mgmt_log_text.delete(1.0, tk.END)
+        self.append_mgmt_log("📋 日志已清空")
+    
+    def save_mgmt_log(self):
+        """保存管理日志"""
+        content = self.mgmt_log_text.get(1.0, tk.END)
+        if not content.strip():
+            messagebox.showwarning("警告", "日志为空，无需保存")
+            return
+            
+        from datetime import datetime
+        filename = f"management_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        file_path = filedialog.asksaveasfilename(
+            title="保存管理日志",
+            defaultextension=".txt",
+            initialname=filename,
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                messagebox.showinfo("成功", f"日志已保存到: {file_path}")
+            except Exception as e:
+                messagebox.showerror("错误", f"保存失败: {str(e)}")
+    
+    def copy_mgmt_log(self):
+        """复制管理日志"""
+        content = self.mgmt_log_text.get(1.0, tk.END)
+        if not content.strip():
+            messagebox.showwarning("警告", "日志为空，无法复制")
+            return
+        self.copy_to_clipboard(content)
+    
+    def append_mgmt_log(self, message):
+        """添加消息到管理日志"""
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}\n"
+        
+        self.mgmt_log_text.insert(tk.END, formatted_message)
+        
+        # 自动滚动到底部
+        if self.auto_scroll_mgmt.get():
+            self.mgmt_log_text.see(tk.END)
+            
+        # 限制日志长度，保留最近1000行
+        lines = self.mgmt_log_text.get(1.0, tk.END).split('\n')
+        if len(lines) > 1000:
+            self.mgmt_log_text.delete(1.0, f"{len(lines)-1000}.0")
+        
+        self.mgmt_log_text.update_idletasks()
     
     def show_detailed_error(self, title, error_msg):
         """显示详细错误信息窗口"""
@@ -1197,6 +1306,9 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         self.progress_var.set(message)
         self.progress_bar.start()
         self.update_status(message)
+        
+        # 记录操作开始到管理日志
+        self.append_mgmt_log(f"🚀 开始操作: {message}")
         
         def worker():
             try:
