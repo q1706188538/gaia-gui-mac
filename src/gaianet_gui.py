@@ -3,7 +3,7 @@
 
 """
 GaiaNet多节点部署管理GUI
-适用于Mac系统的用户友好界面
+跨平台用户友好界面 (支持Windows、macOS、Linux)
 """
 
 import tkinter as tk
@@ -25,7 +25,13 @@ class GaiaNetGUI:
         
         # 设置样式
         style = ttk.Style()
-        style.theme_use('aqua')  # Mac原生主题
+        # 跨平台主题选择
+        if sys.platform == "darwin":  # macOS
+            style.theme_use('aqua')
+        elif sys.platform == "win32":  # Windows
+            style.theme_use('vista')
+        else:  # Linux
+            style.theme_use('clam')
         
         # 初始化变量
         self.script_dir = Path(__file__).parent
@@ -51,6 +57,9 @@ class GaiaNetGUI:
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
+        # 底部状态栏 (需要先创建，因为其他组件可能会用到status_var)
+        self.create_status_bar(main_frame)
+        
         # 选项卡1: 初次安装
         self.create_install_tab()
         
@@ -65,9 +74,6 @@ class GaiaNetGUI:
         
         # 选项卡5: 日志查看
         self.create_log_tab()
-        
-        # 底部状态栏
-        self.create_status_bar(main_frame)
         
     def create_install_tab(self):
         """创建初次安装选项卡"""
@@ -785,8 +791,43 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         """运行脚本命令"""
         try:
             script_path = self.script_dir / "deploy_multinode_advanced.sh"
-            result = subprocess.run([str(script_path), command], 
-                                  capture_output=True, text=True)
+            
+            # 跨平台脚本执行
+            if sys.platform == "win32":
+                # Windows需要通过bash或Git Bash执行.sh脚本
+                # 首先检查是否有Git Bash
+                bash_paths = [
+                    "C:\\Program Files\\Git\\bin\\bash.exe",
+                    "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+                    "bash"  # 如果bash在PATH中
+                ]
+                
+                bash_exe = None
+                for bash_path in bash_paths:
+                    try:
+                        result_test = subprocess.run([bash_path, "--version"], 
+                                                   capture_output=True, text=True, timeout=5)
+                        if result_test.returncode == 0:
+                            bash_exe = bash_path
+                            break
+                    except:
+                        continue
+                
+                if bash_exe:
+                    # 将Windows路径转换为Unix风格路径给bash使用
+                    unix_script_path = str(script_path).replace('\\', '/').replace('C:', '/c')
+                    result = subprocess.run([bash_exe, unix_script_path, command], 
+                                          capture_output=True, text=True)
+                else:
+                    # 如果没有bash，显示提示信息
+                    self.update_status("❌ Windows系统需要安装Git Bash来运行脚本")
+                    self.root.after(0, lambda: messagebox.showerror("错误", 
+                        "Windows系统需要安装Git Bash来运行shell脚本。\n请安装Git for Windows。"))
+                    return
+            else:
+                # macOS/Linux直接执行
+                result = subprocess.run([str(script_path), command], 
+                                      capture_output=True, text=True)
             
             self.update_status(f"命令 '{command}' 执行完成")
             
@@ -1021,16 +1062,12 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
 
 def main():
     """主函数"""
-    # 检查是否在Mac上运行
-    if sys.platform != 'darwin':
-        messagebox.showerror("错误", "此程序仅支持macOS系统")
-        return
-        
     # 创建主窗口
     root = tk.Tk()
     
-    # 设置Mac特定的样式
-    root.option_add('*tearOff', False)
+    # 设置跨平台样式
+    if sys.platform == 'darwin':  # macOS特定设置
+        root.option_add('*tearOff', False)
     
     # 创建应用
     app = GaiaNetGUI(root)
