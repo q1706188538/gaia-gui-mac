@@ -672,9 +672,15 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             "nodes": expanded_nodes
         }
         
-        config_path = self.work_dir / "nodes_config.json"
+        # 配置文件保存到scripts目录（脚本期望的位置）
+        config_path = self.script_dir / "nodes_config.json"
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
+            
+        print(f"配置文件已保存到: {config_path}")
+        print("配置内容（节点路径已展开）:")
+        for node in expanded_nodes:
+            print(f"  {node['name']}: {node['base_dir']}")
             
     def import_config(self):
         """导入配置"""
