@@ -135,17 +135,17 @@ start_chat_service() {
     
     cd "$SHARED_SERVICES_DIR"
     
-    # 构建启动命令 - 高并发优化（支持几十个节点）
+    # 构建启动命令 - 保守的高并发优化（确保稳定启动）
     local cmd=(
         wasmedge
         --dir ".:."
         --nn-preload "default:GGML:AUTO:$CHAT_MODEL_FILE"
         llama-api-server.wasm
         --model-name "$CHAT_MODEL_NAME"
-        --ctx-size "32768"
-        --batch-size "4096"
-        --ubatch-size "4096"
-        --parallel "8"
+        --ctx-size "16384"
+        --batch-size "1024"
+        --ubatch-size "512"
+        --parallel "4"
         --prompt-template "${PROMPT_TEMPLATE:-llama-3-chat}"
         --include-usage
         --port "$CHAT_MODEL_PORT"
