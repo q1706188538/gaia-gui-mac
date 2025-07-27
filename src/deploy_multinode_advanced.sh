@@ -940,13 +940,13 @@ show_nodes_identity() {
     
     # 确定身份信息文件保存目录 - 优先级：GAIA_WORK_DIR > 桌面 > 脚本目录
     local save_dir=""
-    if [ -n "$GAIA_WORK_DIR" ] && [ -d "$GAIA_WORK_DIR" ]; then
+    if [ -n "$GAIA_WORK_DIR" ] && [ -d "$GAIA_WORK_DIR" ] && [ -w "$GAIA_WORK_DIR" ] && [ "$GAIA_WORK_DIR" != "/" ]; then
         save_dir="$GAIA_WORK_DIR"
         info "💾 使用GUI工作目录保存身份信息: $save_dir"
-    elif [ -d "$HOME/Desktop" ]; then
+    elif [ -d "$HOME/Desktop" ] && [ -w "$HOME/Desktop" ]; then
         save_dir="$HOME/Desktop"
         info "💾 使用桌面目录保存身份信息: $save_dir"
-    elif [ -d "$HOME/桌面" ]; then
+    elif [ -d "$HOME/桌面" ] && [ -w "$HOME/桌面" ]; then
         save_dir="$HOME/桌面"
         info "💾 使用桌面目录保存身份信息: $save_dir"
     else

@@ -41,8 +41,12 @@ class GaiaNetGUI:
                 # macOS应用包结构: .app/Contents/Resources/scripts/
                 app_path = Path(sys.executable).parent.parent
                 self.script_dir = app_path / "Resources" / "scripts"
-                # GUI运行目录（用于保存用户文件）
-                self.work_dir = Path.cwd()
+                # GUI运行目录（用于保存用户文件）- 使用用户桌面目录而不是根目录
+                desktop_path = Path.home() / "Desktop"
+                if desktop_path.exists() and desktop_path.is_dir():
+                    self.work_dir = desktop_path
+                else:
+                    self.work_dir = Path.home()
             else:
                 # Windows/Linux打包环境
                 self.script_dir = Path(sys.executable).parent / "scripts"
