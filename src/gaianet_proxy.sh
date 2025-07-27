@@ -77,7 +77,20 @@ start_gaia_nexus_proxy() {
     rag_prompt=$(awk -F'"' '/"rag_prompt":/ {print $4}' $gaianet_base_dir/config.json)
     
     if grep -q '"context_window":' $gaianet_base_dir/config.json; then
-        context_window=$(awk '/{"context_window":/ {gsub(/.*"context_window"[[:space:]]*:[[:space:]]*/, ""); gsub(/[^0-9].*/, ""); print}' $gaianet_base_dir/config.json)
+        # 同时支持字符串和数字格式的context_window
+        context_window=$(awk '/{"context_window":/ {
+            if (match($0, /"context_window"[[:space:]]*:[[:space:]]*"([^"]*)"/)) {
+                # 字符串格式
+                gsub(/.*"context_window"[[:space:]]*:[[:space:]]*"/, "");
+                gsub(/".*/, "");
+                print;
+            } else if (match($0, /"context_window"[[:space:]]*:[[:space:]]*([0-9]+)/)) {
+                # 数字格式
+                gsub(/.*"context_window"[[:space:]]*:[[:space:]]*/, "");
+                gsub(/[^0-9].*/, "");
+                print;
+            }
+        }' $gaianet_base_dir/config.json)
         if [ -z "$context_window" ]; then
             context_window=1
         fi

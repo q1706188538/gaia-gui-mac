@@ -320,6 +320,8 @@ class GaiaNetGUI:
         btn_frame3 = ttk.Frame(ops_frame)
         btn_frame3.pack(fill=tk.X, pady=5)
         
+        ttk.Button(btn_frame3, text="🧹 清理进程", 
+                  command=self.cleanup_processes, width=20).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame3, text="🗑️ 删除所有从节点目录", 
                   command=self.delete_all_slave_nodes_directories, width=20).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame3, text="🗑️ 删除主节点目录", 
@@ -1140,6 +1142,124 @@ curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/
             
         self.run_async_operation("获取身份信息中...", self._run_script_command, "identity")
         
+    def cleanup_processes(self):
+        """清理GaiaNet相关进程"""
+        if self.is_running:
+            messagebox.showwarning("警告", "有操作正在进行中，请稍候...")
+            return
+            
+        result = messagebox.askyesno("确认清理进程", 
+            "即将强制结束以下类型的进程：\n\n"
+            "🔄 共享服务进程 (Chat、Embedding、Qdrant)\n"
+            "🌐 FRP代理进程 (frpc)\n"
+            "⚡ gaia-nexus进程\n"
+            "🔧 wasmedge进程\n\n"
+            "⚠️ 这将强制结束所有相关进程，可能会影响正在运行的节点\n\n"
+            "确定要继续吗？")
+        
+        if result:
+            self.run_async_operation("清理进程中...", self._cleanup_processes)
+    
+    def _cleanup_processes(self):
+        """执行进程清理"""
+        try:
+            self.root.after(0, lambda: self.append_mgmt_log("🧹 开始清理GaiaNet相关进程..."))
+            
+            cleanup_count = 0
+            
+            # 定义要清理的进程模式
+            process_patterns = [
+                ("frpc", "FRP代理进程"),
+                ("gaia-nexus", "gaia-nexus进程"),
+                ("wasmedge", "wasmedge进程"),
+                ("qdrant", "Qdrant向量数据库"),
+                ("llama-server", "Llama服务进程"),
+                ("embedding-server", "Embedding服务进程")
+            ]
+            
+            for pattern, description in process_patterns:
+                try:
+                    self.root.after(0, lambda d=description: self.append_mgmt_log(f"🔍 搜索{d}..."))
+                    
+                    # 跨平台进程查找和终止
+                    if sys.platform == "win32":
+                        # Windows: 使用taskkill
+                        result = subprocess.run(
+                            ["taskkill", "/F", "/IM", f"{pattern}.exe"],
+                            capture_output=True, text=True
+                        )
+                        if result.returncode == 0:
+                            cleanup_count += 1
+                            self.root.after(0, lambda d=description: 
+                                           self.append_mgmt_log(f"✅ 已结束{d}"))
+                    else:
+                        # macOS/Linux: 使用pkill
+                        result = subprocess.run(
+                            ["pkill", "-f", pattern],
+                            capture_output=True, text=True
+                        )
+                        if result.returncode == 0:
+                            cleanup_count += 1
+                            self.root.after(0, lambda d=description: 
+                                           self.append_mgmt_log(f"✅ 已结束{d}"))
+                        
+                        # 额外尝试使用killall（某些系统可能需要）
+                        subprocess.run(["killall", "-9", pattern], 
+                                     capture_output=True, text=True)
+                                     
+                except Exception as e:
+                    self.root.after(0, lambda d=description, err=str(e): 
+                                   self.append_mgmt_log(f"⚠️ 清理{d}时出错: {err}"))
+            
+            # 清理PID文件
+            try:
+                self.root.after(0, lambda: self.append_mgmt_log("🗂️ 清理PID文件..."))
+                
+                pid_patterns = [
+                    "*/llama_nexus.pid",
+                    "*/gaia-frp.pid", 
+                    "*/qdrant.pid",
+                    "*/shared_qdrant.pid"
+                ]
+                
+                for pattern in pid_patterns:
+                    if sys.platform == "win32":
+                        # Windows: 使用del命令
+                        subprocess.run(["del", "/Q", pattern], shell=True, 
+                                     capture_output=True, text=True)
+                    else:
+                        # macOS/Linux: 使用rm命令  
+                        subprocess.run(["rm", "-f"] + pattern.split(), 
+                                     capture_output=True, text=True)
+                        
+                self.root.after(0, lambda: self.append_mgmt_log("✅ PID文件清理完成"))
+                
+            except Exception as e:
+                self.root.after(0, lambda err=str(e): 
+                               self.append_mgmt_log(f"⚠️ 清理PID文件时出错: {err}"))
+            
+            # 等待进程完全结束
+            import time
+            time.sleep(2)
+            
+            success_msg = f"✅ 进程清理完成！处理了 {cleanup_count} 类进程"
+            self.update_status(success_msg)
+            self.root.after(0, lambda: self.append_mgmt_log(success_msg))
+            self.root.after(0, lambda: self.append_mgmt_log("💡 建议等待几秒后再重新启动节点"))
+            
+            self.root.after(0, lambda: messagebox.showinfo("清理完成", 
+                f"进程清理操作完成！\n\n"
+                f"✅ 已处理 {cleanup_count} 类相关进程\n"
+                f"✅ PID文件已清理\n\n"
+                f"💡 现在可以安全地重新启动节点系统\n"
+                f"💡 建议先查看系统状态确认清理效果"))
+                
+        except Exception as e:
+            error_msg = f"进程清理操作异常: {str(e)}"
+            self.update_status(f"❌ {error_msg}")
+            self.root.after(0, lambda: self.append_mgmt_log(f"❌ {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"进程清理操作失败:\n{str(e)}"))
+            
     def delete_all_slave_nodes_directories(self):
         """删除所有从节点目录"""
         if self.is_running:

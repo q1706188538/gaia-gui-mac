@@ -309,26 +309,26 @@ update_node_config() {
             sed -i.bak3 's/"embedding_collection_name"[[:space:]]*:[[:space:]]*"[^"]*"/"embedding_collection_name": "default"/' "$temp_file"
             sed -i.bak4 's/"rag_policy"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_policy": "system-message"/' "$temp_file"
             sed -i.bak5 's/"rag_prompt"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_prompt": "Use the following information to answer the question."/' "$temp_file"
-            sed -i.bak6 's/"context_window"[[:space:]]*:[[:space:]]*[0-9]*/"context_window": 1/' "$temp_file"
+            sed -i.bak6 's/"context_window"[[:space:]]*:[[:space:]]*[0-9]*/"context_window": "1"/' "$temp_file"
             sed -i.bak7 's/"qdrant_score_threshold"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_score_threshold": "0.5"/' "$temp_file"
             sed -i.bak8 's/"qdrant_limit"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_limit": "3"/' "$temp_file"
             
             # 只有当字段都不存在时才添加（避免重复）
             if ! grep -q '"qdrant_url"' "$temp_file" && ! grep -q '"embedding_collection_name"' "$temp_file"; then
-                sed -i.bak9 's/}$/,\n  "qdrant_url": "http:\/\/localhost:6333",\n  "embedding_collection_name": "default",\n  "rag_policy": "system-message",\n  "rag_prompt": "Use the following information to answer the question.",\n  "context_window": 1,\n  "qdrant_score_threshold": "0.5",\n  "qdrant_limit": "3"\n}/' "$temp_file"
+                sed -i.bak9 's/}$/,\n  "qdrant_url": "http:\/\/localhost:6333",\n  "embedding_collection_name": "default",\n  "rag_policy": "system-message",\n  "rag_prompt": "Use the following information to answer the question.",\n  "context_window": "1",\n  "qdrant_score_threshold": "0.5",\n  "qdrant_limit": "3"\n}/' "$temp_file"
             fi
         elif [ "$force_rag" = "true" ]; then
             # 配置独立RAG
             sed -i.bak2 's/"embedding_collection_name"[[:space:]]*:[[:space:]]*"[^"]*"/"embedding_collection_name": "default"/' "$temp_file"
             sed -i.bak3 's/"rag_policy"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_policy": "system-message"/' "$temp_file"
             sed -i.bak4 's/"rag_prompt"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_prompt": "Use the following information to answer the question."/' "$temp_file"
-            sed -i.bak5 's/"context_window"[[:space:]]*:[[:space:]]*[0-9]*/"context_window": 1/' "$temp_file"
+            sed -i.bak5 's/"context_window"[[:space:]]*:[[:space:]]*[0-9]*/"context_window": "1"/' "$temp_file"
             sed -i.bak6 's/"qdrant_score_threshold"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_score_threshold": "0.5"/' "$temp_file"
             sed -i.bak7 's/"qdrant_limit"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_limit": "3"/' "$temp_file"
             
             # 只有当字段都不存在时才添加（避免重复）
             if ! grep -q '"embedding_collection_name"' "$temp_file"; then
-                sed -i.bak8 's/}$/,\n  "embedding_collection_name": "default",\n  "rag_policy": "system-message",\n  "rag_prompt": "Use the following information to answer the question.",\n  "context_window": 1,\n  "qdrant_score_threshold": "0.5",\n  "qdrant_limit": "3"\n}/' "$temp_file"
+                sed -i.bak8 's/}$/,\n  "embedding_collection_name": "default",\n  "rag_policy": "system-message",\n  "rag_prompt": "Use the following information to answer the question.",\n  "context_window": "1",\n  "qdrant_score_threshold": "0.5",\n  "qdrant_limit": "3"\n}/' "$temp_file"
             fi
         fi
         
@@ -718,6 +718,10 @@ init_nodes() {
             info "    生成独立的节点身份..."
             cd "$base_dir"
             
+            # 在registry.wasm运行之前先更新配置（避免与registry.wasm冲突）
+            info "    预先配置端口和RAG设置..."
+            update_node_config "$base_dir" "$port" "$force_rag"
+            
             # 下载官方nodeid.json模板并生成新的身份
             info "    下载官方nodeid.json模板..."
             # 配置代理参数（可通过环境变量设置）
@@ -819,9 +823,6 @@ init_nodes() {
             update_frpc_config "$base_dir" "$device_id" "$node_address" "$port"
             
             # keystore文件会在节点首次启动时自动生成
-            
-            # 更新配置端口和RAG设置
-            update_node_config "$base_dir" "$port" "$force_rag"
             
             info "    ✅ 节点 $name 初始化完成（独立身份和frpc配置）"
         else
