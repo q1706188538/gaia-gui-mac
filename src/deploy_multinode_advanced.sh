@@ -720,7 +720,11 @@ init_nodes() {
             
             # 创建nodeid.json模板并生成新的身份
             info "    创建nodeid.json模板..."
-            echo '{}' > nodeid.json
+            # 创建一个带换行符的空JSON对象
+            cat > nodeid.json << 'EOF'
+{
+}
+EOF
             info "    ✅ nodeid.json模板创建成功"
             
             # 基于创建的模板使用 wasmedge 生成完整身份信息
