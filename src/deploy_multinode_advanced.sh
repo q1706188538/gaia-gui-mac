@@ -309,7 +309,10 @@ update_node_config() {
             sed -i.bak3 's/"embedding_collection_name"[[:space:]]*:[[:space:]]*"[^"]*"/"embedding_collection_name": "default"/' "$temp_file"
             sed -i.bak4 's/"rag_policy"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_policy": "system-message"/' "$temp_file"
             sed -i.bak5 's/"rag_prompt"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_prompt": "Use the following information to answer the question."/' "$temp_file"
-            sed -i.bak6 's/"context_window"[[:space:]]*:[[:space:]]*[0-9]*/"context_window": "1"/' "$temp_file"
+            # 先删除现有的context_window字段（避免重复）
+            sed -i.bak6_pre '/"context_window"[[:space:]]*:[[:space:]]*.*[,}]/d' "$temp_file"
+            # 然后在最后一个字段后添加新的context_window
+            sed -i.bak6 's/"system_prompt"[[:space:]]*:[[:space:]]*"[^"]*"/&,\n  "context_window": "1"/' "$temp_file"
             sed -i.bak7 's/"qdrant_score_threshold"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_score_threshold": "0.5"/' "$temp_file"
             sed -i.bak8 's/"qdrant_limit"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_limit": "3"/' "$temp_file"
             
@@ -322,7 +325,10 @@ update_node_config() {
             sed -i.bak2 's/"embedding_collection_name"[[:space:]]*:[[:space:]]*"[^"]*"/"embedding_collection_name": "default"/' "$temp_file"
             sed -i.bak3 's/"rag_policy"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_policy": "system-message"/' "$temp_file"
             sed -i.bak4 's/"rag_prompt"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_prompt": "Use the following information to answer the question."/' "$temp_file"
-            sed -i.bak5 's/"context_window"[[:space:]]*:[[:space:]]*[0-9]*/"context_window": "1"/' "$temp_file"
+            # 先删除现有的context_window字段（避免重复）
+            sed -i.bak5_pre '/"context_window"[[:space:]]*:[[:space:]]*.*[,}]/d' "$temp_file"
+            # 然后在最后一个字段后添加新的context_window
+            sed -i.bak5 's/"system_prompt"[[:space:]]*:[[:space:]]*"[^"]*"/&,\n  "context_window": "1"/' "$temp_file"
             sed -i.bak6 's/"qdrant_score_threshold"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_score_threshold": "0.5"/' "$temp_file"
             sed -i.bak7 's/"qdrant_limit"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_limit": "3"/' "$temp_file"
             
