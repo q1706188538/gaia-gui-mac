@@ -77,7 +77,10 @@ start_gaia_nexus_proxy() {
     rag_prompt=$(awk -F'"' '/"rag_prompt":/ {print $4}' $gaianet_base_dir/config.json)
     
     if grep -q '"context_window":' $gaianet_base_dir/config.json; then
-        context_window=$(awk -F'"' '/"context_window":/ {print $4}' $gaianet_base_dir/config.json)
+        context_window=$(awk '/{"context_window":/ {gsub(/.*"context_window"[[:space:]]*:[[:space:]]*/, ""); gsub(/[^0-9].*/, ""); print}' $gaianet_base_dir/config.json)
+        if [ -z "$context_window" ]; then
+            context_window=1
+        fi
     else
         context_window=1
     fi
