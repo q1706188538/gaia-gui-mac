@@ -124,55 +124,141 @@ check_config() {
 # 读取配置中的节点信息
 get_nodes_info() {
     # 使用更简单的方法解析JSON，避免依赖python3
-    # 使用grep和sed来提取节点信息
+    # 使用awk来提取节点信息，处理多行JSON对象
     
-    # 临时文件来存储节点信息
-    local temp_file="/tmp/gaianet_nodes_$$.tmp"
+    awk '
+    BEGIN { 
+        in_nodes = 0
+        in_node = 0
+        brace_count = 0
+        name = ""
+        base_dir = ""
+        port = ""
+        local_only = ""
+        force_rag = ""
+        auto_start = ""
+    }
     
-    # 提取nodes数组中的每个节点对象
-    grep -o '"name"[^}]*}' "$NODES_CONFIG_FILE" | while read -r node_block; do
-        # 提取各个字段
-        local name=$(echo "$node_block" | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-        local base_dir=$(echo "$node_block" | grep -o '"base_dir"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
-        local port=$(echo "$node_block" | grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$')
-        local local_only=$(echo "$node_block" | grep -o '"local_only"[[:space:]]*:[[:space:]]*[a-z]*' | grep -o '[a-z]*$')
-        local force_rag=$(echo "$node_block" | grep -o '"force_rag"[[:space:]]*:[[:space:]]*[a-z]*' | grep -o '[a-z]*$')
-        local auto_start=$(echo "$node_block" | grep -o '"auto_start"[[:space:]]*:[[:space:]]*[a-z]*' | grep -o '[a-z]*$')
+    # 检测进入nodes数组
+    /"nodes"[[:space:]]*:[[:space:]]*\[/ {
+        in_nodes = 1
+        next
+    }
+    
+    # 在nodes数组中
+    in_nodes {
+        # 检测节点对象开始
+        if (/^[[:space:]]*\{/) {
+            in_node = 1
+            brace_count = 1
+            # 重置变量
+            name = ""
+            base_dir = ""
+            port = ""
+            local_only = "false"
+            force_rag = "false"
+            auto_start = "true"
+            next
+        }
         
-        # 设置默认值
-        [ -z "$name" ] && name="unknown"
-        [ -z "$base_dir" ] && base_dir="$HOME/gaianet_unknown"
-        [ -z "$port" ] && port="8080"
-        [ -z "$local_only" ] && local_only="false"
-        [ -z "$force_rag" ] && force_rag="false" 
-        [ -z "$auto_start" ] && auto_start="true"
+        # 在节点对象中解析字段
+        if (in_node) {
+            if (/"name"[[:space:]]*:[[:space:]]*"([^"]*)"/) {
+                match($0, /"name"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
+                name = arr[1]
+            }
+            if (/"base_dir"[[:space:]]*:[[:space:]]*"([^"]*)"/) {
+                match($0, /"base_dir"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
+                base_dir = arr[1]
+            }
+            if (/"port"[[:space:]]*:[[:space:]]*([0-9]+)/) {
+                match($0, /"port"[[:space:]]*:[[:space:]]*([0-9]+)/, arr)
+                port = arr[1]
+            }
+            if (/"local_only"[[:space:]]*:[[:space:]]*(true|false)/) {
+                match($0, /"local_only"[[:space:]]*:[[:space:]]*(true|false)/, arr)
+                local_only = arr[1]
+            }
+            if (/"force_rag"[[:space:]]*:[[:space:]]*(true|false)/) {
+                match($0, /"force_rag"[[:space:]]*:[[:space:]]*(true|false)/, arr)
+                force_rag = arr[1]
+            }
+            if (/"auto_start"[[:space:]]*:[[:space:]]*(true|false)/) {
+                match($0, /"auto_start"[[:space:]]*:[[:space:]]*(true|false)/, arr)
+                auto_start = arr[1]
+            }
+            
+            # 检测节点对象结束
+            if (/^[[:space:]]*\}/) {
+                brace_count--
+                if (brace_count == 0) {
+                    in_node = 0
+                    # 输出节点信息
+                    if (name != "") {
+                        # 转换布尔值格式
+                        local_only_str = (local_only == "true") ? "True" : "False"
+                        force_rag_str = (force_rag == "true") ? "True" : "False"
+                        auto_start_str = (auto_start == "true") ? "True" : "False"
+                        
+                        print name "|" base_dir "|" port "|" local_only_str "|" force_rag_str "|" auto_start_str
+                    }
+                }
+            }
+        }
         
-        # 转换布尔值格式
-        [ "$local_only" = "true" ] && local_only="True" || local_only="False"
-        [ "$force_rag" = "true" ] && force_rag="True" || force_rag="False"
-        [ "$auto_start" = "true" ] && auto_start="True" || auto_start="False"
-        
-        # 输出格式化的节点信息
-        echo "${name}|${base_dir}|${port}|${local_only}|${force_rag}|${auto_start}"
-    done
+        # 检测nodes数组结束
+        if (/^[[:space:]]*\]/) {
+            in_nodes = 0
+        }
+    }
+    ' "$NODES_CONFIG_FILE"
 }
 
 # 读取共享服务配置
 get_shared_services_info() {
-    # 使用grep和sed来提取共享服务信息，避免依赖python3
-    local chat_port=$(grep -o '"chat_port"[[:space:]]*:[[:space:]]*[0-9]*' "$NODES_CONFIG_FILE" | grep -o '[0-9]*$')
-    local embedding_port=$(grep -o '"embedding_port"[[:space:]]*:[[:space:]]*[0-9]*' "$NODES_CONFIG_FILE" | grep -o '[0-9]*$')
-    local auto_start=$(grep -o '"auto_start"[[:space:]]*:[[:space:]]*[a-z]*' "$NODES_CONFIG_FILE" | grep -o '[a-z]*$' | head -1)
+    # 使用awk来提取共享服务信息，避免依赖python3，确保正确解析
     
-    # 设置默认值
-    [ -z "$chat_port" ] && chat_port="9000"
-    [ -z "$embedding_port" ] && embedding_port="9001"
-    [ -z "$auto_start" ] && auto_start="true"
+    awk '
+    BEGIN { 
+        in_shared = 0
+        chat_port = "9000"
+        embedding_port = "9001" 
+        auto_start = "true"
+    }
     
-    # 转换布尔值格式
-    [ "$auto_start" = "true" ] && auto_start="True" || auto_start="False"
+    # 检测进入shared_services对象
+    /"shared_services"[[:space:]]*:[[:space:]]*\{/ {
+        in_shared = 1
+        next
+    }
     
-    echo "${chat_port}|${embedding_port}|${auto_start}"
+    # 在shared_services对象中
+    in_shared {
+        if (/"chat_port"[[:space:]]*:[[:space:]]*([0-9]+)/) {
+            match($0, /"chat_port"[[:space:]]*:[[:space:]]*([0-9]+)/, arr)
+            chat_port = arr[1]
+        }
+        if (/"embedding_port"[[:space:]]*:[[:space:]]*([0-9]+)/) {
+            match($0, /"embedding_port"[[:space:]]*:[[:space:]]*([0-9]+)/, arr)
+            embedding_port = arr[1]
+        }
+        if (/"auto_start"[[:space:]]*:[[:space:]]*(true|false)/) {
+            match($0, /"auto_start"[[:space:]]*:[[:space:]]*(true|false)/, arr)
+            auto_start = arr[1]
+        }
+        
+        # 检测shared_services对象结束
+        if (/^[[:space:]]*\}/) {
+            in_shared = 0
+        }
+    }
+    
+    END {
+        # 转换布尔值格式
+        auto_start_str = (auto_start == "true") ? "True" : "False"
+        print chat_port "|" embedding_port "|" auto_start_str
+    }
+    ' "$NODES_CONFIG_FILE"
 }
 
 # 更新节点配置文件的端口和RAG设置（无python3依赖版本）
@@ -663,8 +749,8 @@ init_nodes() {
                     # 尝试多种可能的地址格式
                     node_address=$(grep -o '"address": "[^"]*"' nodeid.json | cut -d'"' -f4)
                     if [ -z "$node_address" ]; then
-                        # 尝试其他可能的格式
-                        node_address=$(jq -r '.address // empty' nodeid.json 2>/dev/null)
+                        # 尝试其他可能的格式（去除jq依赖）
+                        node_address=$(grep -o '"address"[[:space:]]*:[[:space:]]*"[^"]*"' nodeid.json | cut -d'"' -f4)
                     fi
                     if [ -z "$node_address" ]; then
                         # 尝试查找任何包含地址的字段

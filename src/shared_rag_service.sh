@@ -179,32 +179,31 @@ configure_node_shared_rag() {
     # 备份配置
     cp "$node_dir/config.json" "$node_dir/config.json.pre-shared-rag"
     
-    # 更新配置使用共享Qdrant
-    python3 -c "
-import json
-
-config_file = '$node_dir/config.json'
-try:
-    with open(config_file, 'r') as f:
-        config = json.load(f)
+    # 更新配置使用共享Qdrant（避免python3依赖）
+    local temp_file="/tmp/shared_rag_$$.json"
+    cp "$node_dir/config.json" "$temp_file"
     
     # 配置共享RAG
-    config['embedding_collection_name'] = 'default'
-    config['rag_policy'] = 'system-message'
-    config['rag_prompt'] = 'Use the following information to answer the question.'
-    config['context_window'] = 1
-    config['qdrant_score_threshold'] = '0.5'
-    config['qdrant_limit'] = '3'
-    config['snapshot'] = 'shared_knowledge_base'
+    sed -i.bak1 's/"embedding_collection_name"[[:space:]]*:[[:space:]]*"[^"]*"/"embedding_collection_name": "default"/' "$temp_file"
+    sed -i.bak2 's/"rag_policy"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_policy": "system-message"/' "$temp_file"
+    sed -i.bak3 's/"rag_prompt"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_prompt": "Use the following information to answer the question."/' "$temp_file"
+    sed -i.bak4 's/"context_window"[[:space:]]*:[[:space:]]*[0-9]*/"context_window": 1/' "$temp_file"
+    sed -i.bak5 's/"qdrant_score_threshold"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_score_threshold": "0.5"/' "$temp_file"
+    sed -i.bak6 's/"qdrant_limit"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_limit": "3"/' "$temp_file"
+    sed -i.bak7 's/"snapshot"[[:space:]]*:[[:space:]]*"[^"]*"/"snapshot": "shared_knowledge_base"/' "$temp_file"
     
-    with open(config_file, 'w') as f:
-        json.dump(config, f, indent=2)
+    # 如果字段不存在，则在}前添加
+    if ! grep -q '"embedding_collection_name"' "$temp_file"; then
+        sed -i.bak8 's/}$/,\n  "embedding_collection_name": "default",\n  "rag_policy": "system-message",\n  "rag_prompt": "Use the following information to answer the question.",\n  "context_window": 1,\n  "qdrant_score_threshold": "0.5",\n  "qdrant_limit": "3",\n  "snapshot": "shared_knowledge_base"\n}/' "$temp_file"
+    fi
     
-    print('✅ 共享RAG配置已更新')
-except Exception as e:
-    print(f'❌ 配置更新失败: {e}')
-    exit(1)
-"
+    # 复制更新后的配置文件
+    cp "$temp_file" "$node_dir/config.json"
+    
+    # 清理临时文件
+    rm -f "$temp_file" "$temp_file".bak* 2>/dev/null || true
+    
+    echo "✅ 共享RAG配置已更新"
     
     if [ $? -eq 0 ]; then
         info "    ✅ 节点 $node_name 共享RAG配置完成"
