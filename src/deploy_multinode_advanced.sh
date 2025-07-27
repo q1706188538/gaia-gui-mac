@@ -313,8 +313,8 @@ update_node_config() {
             sed -i.bak7 's/"qdrant_score_threshold"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_score_threshold": "0.5"/' "$temp_file"
             sed -i.bak8 's/"qdrant_limit"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_limit": "3"/' "$temp_file"
             
-            # 如果字段不存在，则在}前添加
-            if ! grep -q '"qdrant_url"' "$temp_file"; then
+            # 只有当字段都不存在时才添加（避免重复）
+            if ! grep -q '"qdrant_url"' "$temp_file" && ! grep -q '"embedding_collection_name"' "$temp_file"; then
                 sed -i.bak9 's/}$/,\n  "qdrant_url": "http:\/\/localhost:6333",\n  "embedding_collection_name": "default",\n  "rag_policy": "system-message",\n  "rag_prompt": "Use the following information to answer the question.",\n  "context_window": "1",\n  "qdrant_score_threshold": "0.5",\n  "qdrant_limit": "3"\n}/' "$temp_file"
             fi
         elif [ "$force_rag" = "true" ]; then
@@ -326,7 +326,7 @@ update_node_config() {
             sed -i.bak6 's/"qdrant_score_threshold"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_score_threshold": "0.5"/' "$temp_file"
             sed -i.bak7 's/"qdrant_limit"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_limit": "3"/' "$temp_file"
             
-            # 如果字段不存在，则在}前添加
+            # 只有当字段都不存在时才添加（避免重复）
             if ! grep -q '"embedding_collection_name"' "$temp_file"; then
                 sed -i.bak8 's/}$/,\n  "embedding_collection_name": "default",\n  "rag_policy": "system-message",\n  "rag_prompt": "Use the following information to answer the question.",\n  "context_window": "1",\n  "qdrant_score_threshold": "0.5",\n  "qdrant_limit": "3"\n}/' "$temp_file"
             fi
