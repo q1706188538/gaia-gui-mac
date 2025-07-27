@@ -123,8 +123,7 @@ check_config() {
 
 # 读取配置中的节点信息
 get_nodes_info() {
-    # 使用更简单的方法解析JSON，避免依赖python3
-    # 使用awk来提取节点信息，处理多行JSON对象
+    # 使用兼容BSD awk的方法解析JSON，避免依赖python3
     
     awk '
     BEGIN { 
@@ -134,9 +133,9 @@ get_nodes_info() {
         name = ""
         base_dir = ""
         port = ""
-        local_only = ""
-        force_rag = ""
-        auto_start = ""
+        local_only = "false"
+        force_rag = "false"
+        auto_start = "true"
     }
     
     # 检测进入nodes数组
@@ -161,31 +160,44 @@ get_nodes_info() {
             next
         }
         
-        # 在节点对象中解析字段
+        # 在节点对象中解析字段（使用BSD awk兼容语法）
         if (in_node) {
             if (/"name"[[:space:]]*:[[:space:]]*"([^"]*)"/) {
-                match($0, /"name"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
-                name = arr[1]
+                # 使用gsub和split来提取值
+                line = $0
+                gsub(/.*"name"[[:space:]]*:[[:space:]]*"/, "", line)
+                gsub(/".*/, "", line)
+                name = line
             }
             if (/"base_dir"[[:space:]]*:[[:space:]]*"([^"]*)"/) {
-                match($0, /"base_dir"[[:space:]]*:[[:space:]]*"([^"]*)"/, arr)
-                base_dir = arr[1]
+                line = $0
+                gsub(/.*"base_dir"[[:space:]]*:[[:space:]]*"/, "", line)
+                gsub(/".*/, "", line)
+                base_dir = line
             }
             if (/"port"[[:space:]]*:[[:space:]]*([0-9]+)/) {
-                match($0, /"port"[[:space:]]*:[[:space:]]*([0-9]+)/, arr)
-                port = arr[1]
+                line = $0
+                gsub(/.*"port"[[:space:]]*:[[:space:]]*/, "", line)
+                gsub(/[^0-9].*/, "", line)
+                port = line
             }
             if (/"local_only"[[:space:]]*:[[:space:]]*(true|false)/) {
-                match($0, /"local_only"[[:space:]]*:[[:space:]]*(true|false)/, arr)
-                local_only = arr[1]
+                line = $0
+                gsub(/.*"local_only"[[:space:]]*:[[:space:]]*/, "", line)
+                gsub(/[,}].*/, "", line)
+                local_only = line
             }
             if (/"force_rag"[[:space:]]*:[[:space:]]*(true|false)/) {
-                match($0, /"force_rag"[[:space:]]*:[[:space:]]*(true|false)/, arr)
-                force_rag = arr[1]
+                line = $0
+                gsub(/.*"force_rag"[[:space:]]*:[[:space:]]*/, "", line)
+                gsub(/[,}].*/, "", line)
+                force_rag = line
             }
             if (/"auto_start"[[:space:]]*:[[:space:]]*(true|false)/) {
-                match($0, /"auto_start"[[:space:]]*:[[:space:]]*(true|false)/, arr)
-                auto_start = arr[1]
+                line = $0
+                gsub(/.*"auto_start"[[:space:]]*:[[:space:]]*/, "", line)
+                gsub(/[,}].*/, "", line)
+                auto_start = line
             }
             
             # 检测节点对象结束
@@ -216,7 +228,7 @@ get_nodes_info() {
 
 # 读取共享服务配置
 get_shared_services_info() {
-    # 使用awk来提取共享服务信息，避免依赖python3，确保正确解析
+    # 使用兼容BSD awk的方法来提取共享服务信息，避免依赖python3
     
     awk '
     BEGIN { 
@@ -235,16 +247,22 @@ get_shared_services_info() {
     # 在shared_services对象中
     in_shared {
         if (/"chat_port"[[:space:]]*:[[:space:]]*([0-9]+)/) {
-            match($0, /"chat_port"[[:space:]]*:[[:space:]]*([0-9]+)/, arr)
-            chat_port = arr[1]
+            line = $0
+            gsub(/.*"chat_port"[[:space:]]*:[[:space:]]*/, "", line)
+            gsub(/[^0-9].*/, "", line)
+            chat_port = line
         }
         if (/"embedding_port"[[:space:]]*:[[:space:]]*([0-9]+)/) {
-            match($0, /"embedding_port"[[:space:]]*:[[:space:]]*([0-9]+)/, arr)
-            embedding_port = arr[1]
+            line = $0
+            gsub(/.*"embedding_port"[[:space:]]*:[[:space:]]*/, "", line)
+            gsub(/[^0-9].*/, "", line)
+            embedding_port = line
         }
         if (/"auto_start"[[:space:]]*:[[:space:]]*(true|false)/) {
-            match($0, /"auto_start"[[:space:]]*:[[:space:]]*(true|false)/, arr)
-            auto_start = arr[1]
+            line = $0
+            gsub(/.*"auto_start"[[:space:]]*:[[:space:]]*/, "", line)
+            gsub(/[,}].*/, "", line)
+            auto_start = line
         }
         
         # 检测shared_services对象结束
