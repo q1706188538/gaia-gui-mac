@@ -142,9 +142,9 @@ start_chat_service() {
         --nn-preload "default:GGML:AUTO:$CHAT_MODEL_FILE"
         llama-api-server.wasm
         --model-name "$CHAT_MODEL_NAME"
-        --ctx-size "${CHAT_CTX_SIZE:-4096}"
-        --batch-size "512"
-        --ubatch-size "512"
+        --ctx-size "${CHAT_CTX_SIZE:-16384}"
+        --batch-size "2048"
+        --ubatch-size "2048"
         --prompt-template "${PROMPT_TEMPLATE:-llama-3-chat}"
         --include-usage
         --port "$CHAT_MODEL_PORT"

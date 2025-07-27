@@ -85,9 +85,36 @@ check_config() {
         return 1
     fi
     
-    # 检查JSON格式
-    if ! python3 -c "import json; json.load(open('$NODES_CONFIG_FILE'))" 2>/dev/null; then
-        error "❌ 配置文件JSON格式错误: $NODES_CONFIG_FILE"
+    # 检查文件是否为空
+    if [ ! -s "$NODES_CONFIG_FILE" ]; then
+        warning "❗ 配置文件为空: $NODES_CONFIG_FILE"
+        info "正在创建示例配置文件..."
+        create_example_config
+        return 1
+    fi
+    
+    # 简单的JSON格式检查（避免依赖python3）
+    # 检查基本的JSON结构：是否包含大括号和基本字段
+    if ! grep -q '^\s*{' "$NODES_CONFIG_FILE" || ! grep -q '}\s*$' "$NODES_CONFIG_FILE"; then
+        error "❌ 配置文件格式错误: $NODES_CONFIG_FILE"
+        info "配置文件内容:"
+        head -10 "$NODES_CONFIG_FILE" | sed 's/^/    /'
+        
+        # 备份损坏的文件并创建新的
+        local backup_file="${NODES_CONFIG_FILE}.backup.$(date +%s)"
+        mv "$NODES_CONFIG_FILE" "$backup_file" 2>/dev/null
+        warning "已备份损坏的配置文件到: $backup_file"
+        
+        info "正在创建新的示例配置文件..."
+        create_example_config
+        return 1
+    fi
+    
+    # 检查是否包含必要的字段
+    if ! grep -q '"nodes"' "$NODES_CONFIG_FILE"; then
+        warning "❗ 配置文件缺少必要的'nodes'字段"
+        info "正在创建示例配置文件..."
+        create_example_config
         return 1
     fi
     
@@ -96,27 +123,59 @@ check_config() {
 
 # 读取配置中的节点信息
 get_nodes_info() {
-    python3 -c "
-import json
-with open('$NODES_CONFIG_FILE', 'r') as f:
-    config = json.load(f)
-for node in config['nodes']:
-    print(f\"{node['name']}|{node['base_dir']}|{node['port']}|{node.get('local_only', False)}|{node.get('force_rag', False)}|{node.get('auto_start', True)}\")
-"
+    # 使用更简单的方法解析JSON，避免依赖python3
+    # 使用grep和sed来提取节点信息
+    
+    # 临时文件来存储节点信息
+    local temp_file="/tmp/gaianet_nodes_$$.tmp"
+    
+    # 提取nodes数组中的每个节点对象
+    grep -o '"name"[^}]*}' "$NODES_CONFIG_FILE" | while read -r node_block; do
+        # 提取各个字段
+        local name=$(echo "$node_block" | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+        local base_dir=$(echo "$node_block" | grep -o '"base_dir"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+        local port=$(echo "$node_block" | grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$')
+        local local_only=$(echo "$node_block" | grep -o '"local_only"[[:space:]]*:[[:space:]]*[a-z]*' | grep -o '[a-z]*$')
+        local force_rag=$(echo "$node_block" | grep -o '"force_rag"[[:space:]]*:[[:space:]]*[a-z]*' | grep -o '[a-z]*$')
+        local auto_start=$(echo "$node_block" | grep -o '"auto_start"[[:space:]]*:[[:space:]]*[a-z]*' | grep -o '[a-z]*$')
+        
+        # 设置默认值
+        [ -z "$name" ] && name="unknown"
+        [ -z "$base_dir" ] && base_dir="$HOME/gaianet_unknown"
+        [ -z "$port" ] && port="8080"
+        [ -z "$local_only" ] && local_only="false"
+        [ -z "$force_rag" ] && force_rag="false" 
+        [ -z "$auto_start" ] && auto_start="true"
+        
+        # 转换布尔值格式
+        [ "$local_only" = "true" ] && local_only="True" || local_only="False"
+        [ "$force_rag" = "true" ] && force_rag="True" || force_rag="False"
+        [ "$auto_start" = "true" ] && auto_start="True" || auto_start="False"
+        
+        # 输出格式化的节点信息
+        echo "${name}|${base_dir}|${port}|${local_only}|${force_rag}|${auto_start}"
+    done
 }
 
 # 读取共享服务配置
 get_shared_services_info() {
-    python3 -c "
-import json
-with open('$NODES_CONFIG_FILE', 'r') as f:
-    config = json.load(f)
-shared = config.get('shared_services', {})
-print(f\"{shared.get('chat_port', 9000)}|{shared.get('embedding_port', 9001)}|{shared.get('auto_start', True)}\")
-"
+    # 使用grep和sed来提取共享服务信息，避免依赖python3
+    local chat_port=$(grep -o '"chat_port"[[:space:]]*:[[:space:]]*[0-9]*' "$NODES_CONFIG_FILE" | grep -o '[0-9]*$')
+    local embedding_port=$(grep -o '"embedding_port"[[:space:]]*:[[:space:]]*[0-9]*' "$NODES_CONFIG_FILE" | grep -o '[0-9]*$')
+    local auto_start=$(grep -o '"auto_start"[[:space:]]*:[[:space:]]*[a-z]*' "$NODES_CONFIG_FILE" | grep -o '[a-z]*$' | head -1)
+    
+    # 设置默认值
+    [ -z "$chat_port" ] && chat_port="9000"
+    [ -z "$embedding_port" ] && embedding_port="9001"
+    [ -z "$auto_start" ] && auto_start="true"
+    
+    # 转换布尔值格式
+    [ "$auto_start" = "true" ] && auto_start="True" || auto_start="False"
+    
+    echo "${chat_port}|${embedding_port}|${auto_start}"
 }
 
-# 更新节点配置文件的端口和RAG设置
+# 更新节点配置文件的端口和RAG设置（无python3依赖版本）
 update_node_config() {
     local base_dir=$1
     local port=$2
@@ -132,38 +191,49 @@ update_node_config() {
             use_shared_rag=true
         fi
         
-        # 更新端口和RAG配置
-        python3 -c "
-import json
-with open('$base_dir/config.json', 'r') as f:
-    config = json.load(f)
-config['llamaedge_port'] = '$port'
-
-# 配置共享RAG服务
-use_shared_rag = '$use_shared_rag' == 'true'
-if use_shared_rag:
-    # 使用共享Qdrant服务
-    config['qdrant_url'] = 'http://localhost:6333'
-    config['embedding_collection_name'] = 'default'
-    config['rag_policy'] = 'system-message'
-    config['rag_prompt'] = 'Use the following information to answer the question.'
-    config['context_window'] = '1'
-    config['qdrant_score_threshold'] = '0.5'
-    config['qdrant_limit'] = '3'
-else:
-    # 使用独立RAG（如果force_rag=true）
-    force_rag = '$force_rag' == 'true'
-    if force_rag:
-        config['embedding_collection_name'] = 'default'
-        config['rag_policy'] = 'system-message'
-        config['rag_prompt'] = 'Use the following information to answer the question.'
-        config['context_window'] = '1'
-        config['qdrant_score_threshold'] = '0.5'
-        config['qdrant_limit'] = '3'
-
-with open('$base_dir/config.json', 'w') as f:
-    json.dump(config, f, indent=2)
-"
+        # 使用sed来更新JSON配置文件
+        local temp_file="/tmp/config_update_$$.json"
+        cp "$base_dir/config.json" "$temp_file"
+        
+        # 更新端口配置
+        sed -i.bak 's/"llamaedge_port"[[:space:]]*:[[:space:]]*"[^"]*"/"llamaedge_port": "'$port'"/' "$temp_file"
+        
+        if [ "$use_shared_rag" = "true" ]; then
+            # 配置共享RAG服务
+            # 更新或添加共享RAG相关配置
+            sed -i.bak2 's/"qdrant_url"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_url": "http:\/\/localhost:6333"/' "$temp_file"
+            sed -i.bak3 's/"embedding_collection_name"[[:space:]]*:[[:space:]]*"[^"]*"/"embedding_collection_name": "default"/' "$temp_file"
+            sed -i.bak4 's/"rag_policy"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_policy": "system-message"/' "$temp_file"
+            sed -i.bak5 's/"rag_prompt"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_prompt": "Use the following information to answer the question."/' "$temp_file"
+            sed -i.bak6 's/"context_window"[[:space:]]*:[[:space:]]*"[^"]*"/"context_window": "1"/' "$temp_file"
+            sed -i.bak7 's/"qdrant_score_threshold"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_score_threshold": "0.5"/' "$temp_file"
+            sed -i.bak8 's/"qdrant_limit"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_limit": "3"/' "$temp_file"
+            
+            # 如果字段不存在，则在}前添加
+            if ! grep -q '"qdrant_url"' "$temp_file"; then
+                sed -i.bak9 's/}$/,\n  "qdrant_url": "http:\/\/localhost:6333",\n  "embedding_collection_name": "default",\n  "rag_policy": "system-message",\n  "rag_prompt": "Use the following information to answer the question.",\n  "context_window": "1",\n  "qdrant_score_threshold": "0.5",\n  "qdrant_limit": "3"\n}/' "$temp_file"
+            fi
+        elif [ "$force_rag" = "true" ]; then
+            # 配置独立RAG
+            sed -i.bak2 's/"embedding_collection_name"[[:space:]]*:[[:space:]]*"[^"]*"/"embedding_collection_name": "default"/' "$temp_file"
+            sed -i.bak3 's/"rag_policy"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_policy": "system-message"/' "$temp_file"
+            sed -i.bak4 's/"rag_prompt"[[:space:]]*:[[:space:]]*"[^"]*"/"rag_prompt": "Use the following information to answer the question."/' "$temp_file"
+            sed -i.bak5 's/"context_window"[[:space:]]*:[[:space:]]*"[^"]*"/"context_window": "1"/' "$temp_file"
+            sed -i.bak6 's/"qdrant_score_threshold"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_score_threshold": "0.5"/' "$temp_file"
+            sed -i.bak7 's/"qdrant_limit"[[:space:]]*:[[:space:]]*"[^"]*"/"qdrant_limit": "3"/' "$temp_file"
+            
+            # 如果字段不存在，则在}前添加
+            if ! grep -q '"embedding_collection_name"' "$temp_file"; then
+                sed -i.bak8 's/}$/,\n  "embedding_collection_name": "default",\n  "rag_policy": "system-message",\n  "rag_prompt": "Use the following information to answer the question.",\n  "context_window": "1",\n  "qdrant_score_threshold": "0.5",\n  "qdrant_limit": "3"\n}/' "$temp_file"
+            fi
+        fi
+        
+        # 复制更新后的配置文件
+        cp "$temp_file" "$base_dir/config.json"
+        
+        # 清理临时文件
+        rm -f "$temp_file" "$temp_file".bak* 2>/dev/null || true
+        
         if [ "$use_shared_rag" = "true" ]; then
             info "    ✅ 节点配置已更新（端口: $port, 共享RAG: 启用）"
         else
@@ -735,12 +805,28 @@ show_nodes_identity() {
         return 1
     fi
     
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local identity_file="$script_dir/nodes_identity_$(date +%Y%m%d_%H%M%S).txt"
+    # 确定身份信息文件保存目录 - 优先级：GAIA_WORK_DIR > 桌面 > 脚本目录
+    local save_dir=""
+    if [ -n "$GAIA_WORK_DIR" ] && [ -d "$GAIA_WORK_DIR" ]; then
+        save_dir="$GAIA_WORK_DIR"
+        info "💾 使用GUI工作目录保存身份信息: $save_dir"
+    elif [ -d "$HOME/Desktop" ]; then
+        save_dir="$HOME/Desktop"
+        info "💾 使用桌面目录保存身份信息: $save_dir"
+    elif [ -d "$HOME/桌面" ]; then
+        save_dir="$HOME/桌面"
+        info "💾 使用桌面目录保存身份信息: $save_dir"
+    else
+        save_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        warning "💾 使用脚本目录保存身份信息: $save_dir"
+    fi
+    
+    local identity_file="$save_dir/GaiaNet节点身份信息_$(date +%Y%m%d_%H%M%S).txt"
     
     # 创建身份信息文件
     echo "=== GaiaNet 多节点身份信息报告 ===" > "$identity_file"
     echo "生成时间: $(date)" >> "$identity_file"
+    echo "保存位置: $identity_file" >> "$identity_file"
     echo "" >> "$identity_file"
     
     while IFS='|' read -r name base_dir port local_only force_rag auto_start; do
@@ -791,9 +877,10 @@ show_nodes_identity() {
                         info "  Keystore文件: $keystore_name"
                         echo "Keystore文件: $keystore_name" >> "$identity_file"
                         
-                        # 复制keystore文件到脚本目录
-                        cp "$keystore_file" "$script_dir/${name}_${keystore_name}"
-                        info "  ✅ Keystore已复制到: ${name}_${keystore_name}"
+                        # 复制keystore文件到身份信息保存目录
+                        local keystore_backup="$save_dir/${name}_${keystore_name}"
+                        cp "$keystore_file" "$keystore_backup"
+                        info "  ✅ Keystore已备份到: $keystore_backup"
                         echo "Keystore备份: ${name}_${keystore_name}" >> "$identity_file"
                         
                         # 读取keystore内容
@@ -824,7 +911,14 @@ show_nodes_identity() {
     
     info ""
     info "✅ 身份信息已保存到: $identity_file"
-    info "💡 使用命令查看完整报告: cat $identity_file"
+    info "💡 使用命令查看完整报告: cat \"$identity_file\""
+    
+    # 如果是在GUI环境中运行，显示额外提示
+    if [ -n "$GAIA_WORK_DIR" ]; then
+        info "📁 文件保存在GUI工作目录中，便于访问"
+    elif [ -d "$HOME/Desktop" ] || [ -d "$HOME/桌面" ]; then
+        info "📁 文件已保存到桌面，便于查找"
+    fi
 }
 
 show_config() {
@@ -942,10 +1036,11 @@ main() {
 
 # 检查依赖
 check_dependencies() {
-    if ! command -v python3 >/dev/null 2>&1; then
-        error "❌ 需要python3来解析JSON配置文件"
-        exit 1
-    fi
+    # 移除对python3的强制依赖，使用shell内置工具解析JSON
+    # if ! command -v python3 >/dev/null 2>&1; then
+    #     error "❌ 需要python3来解析JSON配置文件"
+    #     exit 1
+    # fi
     
     if ! command -v lsof >/dev/null 2>&1; then
         warning "❗ 建议安装lsof以便更好地检查端口状态"

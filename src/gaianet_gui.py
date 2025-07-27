@@ -491,18 +491,25 @@ class GaiaNetGUI:
             self.root.after(0, lambda: self.append_install_log("🚀 开始主节点安装过程..."))
             
             # 第一步：下载并运行官方安装脚本
-            install_script = """
+            if self.reinstall_var.get():
+                install_script = """
+#!/bin/bash
+set -e
+
+# 下载并运行官方安装脚本（重新安装模式）
+curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash -s -- --reinstall
+                """
+                self.root.after(0, lambda: self.append_install_log("🔄 使用重新安装模式"))
+            else:
+                install_script = """
 #!/bin/bash
 set -e
 
 # 下载并运行官方安装脚本
 curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash
-            """
+                """
             
             cmd = ["bash", "-c", install_script]
-            if self.reinstall_var.get():
-                cmd = ["bash", "-c", install_script + " --reinstall"]
-                self.root.after(0, lambda: self.append_install_log("🔄 使用重新安装模式"))
                 
             self.update_status("📦 步骤1/2: 安装GaiaNet程序...")
             self.root.after(0, lambda: self.append_install_log("📦 步骤1/2: 安装GaiaNet程序..."))
@@ -542,7 +549,7 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             
             self.root.after(0, lambda: self.append_install_log("✅ 程序安装完成"))
             
-            # 第二步：运行gaianet init下载模型文件
+            # 第二步：运行gaianet init下载模型文件（带重试机制）
             self.update_status("📥 步骤2/2: 下载模型文件（这可能需要几分钟）...")
             self.root.after(0, lambda: self.append_install_log("📥 步骤2/2: 下载模型文件（这可能需要几分钟）..."))
             
@@ -557,7 +564,7 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             
             self.root.after(0, lambda: self.append_install_log(f"✅ 找到gaianet程序: {gaianet_path}"))
             
-            # 运行gaianet init（使用绝对路径）
+            # 运行gaianet init（使用绝对路径）- 带重试机制
             init_cmd = [gaianet_path, "init"]
             
             # 设置环境变量，确保能找到相关程序
@@ -566,45 +573,77 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             if gaianet_bin_dir not in env.get('PATH', ''):
                 env['PATH'] = gaianet_bin_dir + ':' + env.get('PATH', '')
             
+            # 设置更宽松的curl选项以处理SSL问题
+            env['CURL_CA_BUNDLE'] = ''  # 禁用证书验证（仅用于下载）
+            
             self.root.after(0, lambda: self.append_install_log(f"📋 执行命令: {' '.join(init_cmd)}"))
+            self.root.after(0, lambda: self.append_install_log("🔧 配置网络连接参数以提高下载成功率"))
             
-            # 使用subprocess.Popen进行实时输出
-            init_process = subprocess.Popen(
-                init_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                universal_newlines=True,
-                bufsize=1,
-                cwd=os.path.expanduser("~/gaianet"),
-                env=env
-            )
-            
-            # 实时读取输出
-            init_output = []
-            while True:
-                line = init_process.stdout.readline()
-                if line:
-                    line = line.rstrip('\n\r')
-                    init_output.append(line)
-                    # 实时显示到安装日志
-                    self.root.after(0, lambda l=line: self.append_install_log(f"    {l}"))
-                elif init_process.poll() is not None:
-                    break
-            
-            # 等待进程完成
-            init_return_code = init_process.wait()
-            
-            if init_return_code == 0:
-                success_msg = "✅ 主节点安装成功（包含模型文件）！"
-                self.update_status(success_msg)
-                self.root.after(0, lambda: self.append_install_log(success_msg))
-                self.root.after(0, lambda: self.append_install_log("🎉 安装过程完全完成"))
-                self.root.after(0, lambda: messagebox.showinfo("成功", "主节点安装完成！\n\n✅ 程序已安装\n✅ 模型文件已下载\n\n现在可以配置从节点并进行部署。"))
-            else:
-                error_msg = f"模型下载失败（返回码: {init_return_code}）"
-                self.update_status(f"❌ {error_msg}")
-                self.root.after(0, lambda: self.append_install_log(f"❌ {error_msg}"))
-                self.root.after(0, lambda: messagebox.showerror("错误", f"{error_msg}\n\n程序已安装，但模型文件下载失败。\n请手动运行: ~/gaianet/bin/gaianet init\n\n详细日志请查看安装日志区域"))
+            # 最多重试3次
+            max_retries = 3
+            for attempt in range(max_retries):
+                if attempt > 0:
+                    self.root.after(0, lambda a=attempt: self.append_install_log(f"🔄 第 {a+1} 次重试下载..."))
+                
+                # 使用subprocess.Popen进行实时输出
+                init_process = subprocess.Popen(
+                    init_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    bufsize=1,
+                    cwd=os.path.expanduser("~/gaianet"),
+                    env=env
+                )
+                
+                # 实时读取输出
+                init_output = []
+                while True:
+                    line = init_process.stdout.readline()
+                    if line:
+                        line = line.rstrip('\n\r')
+                        init_output.append(line)
+                        # 实时显示到安装日志
+                        self.root.after(0, lambda l=line: self.append_install_log(f"    {l}"))
+                    elif init_process.poll() is not None:
+                        break
+                
+                # 等待进程完成
+                init_return_code = init_process.wait()
+                
+                if init_return_code == 0:
+                    success_msg = "✅ 主节点安装成功（包含模型文件）！"
+                    self.update_status(success_msg)
+                    self.root.after(0, lambda: self.append_install_log(success_msg))
+                    self.root.after(0, lambda: self.append_install_log("🎉 安装过程完全完成"))
+                    self.root.after(0, lambda: messagebox.showinfo("成功", "主节点安装完成！\n\n✅ 程序已安装\n✅ 模型文件已下载\n\n现在可以配置从节点并进行部署。"))
+                    return
+                else:
+                    # 检查是否是SSL/网络问题
+                    output_text = '\n'.join(init_output)
+                    if "SSL_ERROR" in output_text or "Failed to download" in output_text or "LibreSSL" in output_text:
+                        if attempt < max_retries - 1:
+                            self.root.after(0, lambda: self.append_install_log("⚠️ 检测到网络连接问题，准备重试..."))
+                            continue
+                        else:
+                            error_msg = f"模型下载失败（网络连接问题，已重试{max_retries}次）"
+                            self.update_status(f"❌ {error_msg}")
+                            self.root.after(0, lambda: self.append_install_log(f"❌ {error_msg}"))
+                            self.root.after(0, lambda: messagebox.showerror("网络错误", 
+                                f"{error_msg}\n\n"
+                                "可能的解决方案:\n"
+                                "1. 检查网络连接\n"
+                                "2. 尝试使用VPN或更换网络\n"
+                                "3. 稍后重试安装\n"
+                                "4. 手动运行: ~/gaianet/bin/gaianet init\n\n"
+                                "详细日志请查看安装日志区域"))
+                            return
+                    else:
+                        error_msg = f"模型下载失败（返回码: {init_return_code}）"
+                        self.update_status(f"❌ {error_msg}")
+                        self.root.after(0, lambda: self.append_install_log(f"❌ {error_msg}"))
+                        self.root.after(0, lambda: messagebox.showerror("错误", f"{error_msg}\n\n程序已安装，但模型文件下载失败。\n请手动运行: ~/gaianet/bin/gaianet init\n\n详细日志请查看安装日志区域"))
+                        return
                 
         except Exception as e:
             error_msg = f"安装异常: {str(e)}"
