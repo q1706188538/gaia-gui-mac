@@ -139,9 +139,36 @@ class GaiaNetGUI:
         ttk.Checkbutton(main_node_frame, text="重新安装 (删除现有文件)", 
                        variable=self.reinstall_var).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=5)
         
+        # 代理设置
+        self.use_proxy_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(main_node_frame, text="使用代理服务器", 
+                       variable=self.use_proxy_var, command=self.toggle_proxy_settings).grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=2)
+        
+        # 代理配置框架
+        self.proxy_frame = ttk.LabelFrame(main_node_frame, text="代理设置", padding=5)
+        self.proxy_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=5)
+        self.proxy_frame.grid_remove()  # 初始隐藏
+        
+        # 代理参数
+        ttk.Label(self.proxy_frame, text="地址:").grid(row=0, column=0, sticky=tk.W, padx=2)
+        self.proxy_host = tk.StringVar(value="5.253.36.69")
+        ttk.Entry(self.proxy_frame, textvariable=self.proxy_host, width=15).grid(row=0, column=1, padx=2)
+        
+        ttk.Label(self.proxy_frame, text="端口:").grid(row=0, column=2, sticky=tk.W, padx=2)
+        self.proxy_port = tk.StringVar(value="22078")
+        ttk.Entry(self.proxy_frame, textvariable=self.proxy_port, width=8).grid(row=0, column=3, padx=2)
+        
+        ttk.Label(self.proxy_frame, text="用户名:").grid(row=1, column=0, sticky=tk.W, padx=2)
+        self.proxy_user = tk.StringVar(value="0EGMs0GNqO")
+        ttk.Entry(self.proxy_frame, textvariable=self.proxy_user, width=15).grid(row=1, column=1, padx=2)
+        
+        ttk.Label(self.proxy_frame, text="密码:").grid(row=1, column=2, sticky=tk.W, padx=2)
+        self.proxy_pass = tk.StringVar(value="lCcZ2Ai3sF")
+        ttk.Entry(self.proxy_frame, textvariable=self.proxy_pass, width=15, show="*").grid(row=1, column=3, padx=2)
+        
         # 安装按钮
         install_btn_frame = ttk.Frame(main_node_frame)
-        install_btn_frame.grid(row=2, column=0, columnspan=3, pady=10)
+        install_btn_frame.grid(row=4, column=0, columnspan=3, pady=10)
         
         ttk.Button(install_btn_frame, text="🚀 安装主节点", 
                   command=self.install_main_node, style='Accent.TButton').pack(side=tk.LEFT, padx=5)
@@ -465,6 +492,28 @@ class GaiaNetGUI:
         ttk.Button(btn_frame, text="🔄 重置", command=self.reset_node_form).pack(side=tk.LEFT, padx=2)
         
     # 事件处理方法
+    def toggle_proxy_settings(self):
+        """切换代理设置显示"""
+        if self.use_proxy_var.get():
+            self.proxy_frame.grid()
+        else:
+            self.proxy_frame.grid_remove()
+    
+    def get_proxy_curl_options(self):
+        """获取代理curl选项"""
+        options = "--insecure"  # 禁用SSL验证提高成功率
+        
+        if self.use_proxy_var.get():
+            host = self.proxy_host.get().strip()
+            port = self.proxy_port.get().strip()
+            user = self.proxy_user.get().strip()
+            password = self.proxy_pass.get().strip()
+            
+            if host and port and user and password:
+                options += f" --proxy http://{user}:{password}@{host}:{port}"
+        
+        return options
+        
     def select_main_node_path(self):
         """选择主节点路径"""
         path = filedialog.askdirectory(title="选择主节点安装目录")
@@ -491,23 +540,27 @@ class GaiaNetGUI:
             self.root.after(0, lambda: self.append_install_log("🚀 开始主节点安装过程..."))
             
             # 第一步：下载并运行官方安装脚本
+            proxy_options = self.get_proxy_curl_options()
             if self.reinstall_var.get():
-                install_script = """
+                install_script = f"""
 #!/bin/bash
 set -e
 
 # 下载并运行官方安装脚本（重新安装模式）
-curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash -s -- --reinstall
+curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash -s -- --reinstall
                 """
                 self.root.after(0, lambda: self.append_install_log("🔄 使用重新安装模式"))
             else:
-                install_script = """
+                install_script = f"""
 #!/bin/bash
 set -e
 
 # 下载并运行官方安装脚本
-curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash
+curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash
                 """
+            
+            if proxy_options:
+                self.root.after(0, lambda: self.append_install_log(f"🌐 使用代理: {self.proxy_host.get()}:{self.proxy_port.get()}"))
             
             cmd = ["bash", "-c", install_script]
                 
@@ -572,6 +625,18 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             gaianet_bin_dir = os.path.expanduser("~/gaianet/bin")
             if gaianet_bin_dir not in env.get('PATH', ''):
                 env['PATH'] = gaianet_bin_dir + ':' + env.get('PATH', '')
+            
+            # 设置代理环境变量（用于脚本中的下载）
+            if self.use_proxy_var.get():
+                host = self.proxy_host.get().strip()
+                port = self.proxy_port.get().strip()
+                user = self.proxy_user.get().strip()
+                password = self.proxy_pass.get().strip()
+                if host and port and user and password:
+                    env['GAIANET_PROXY_HOST'] = host
+                    env['GAIANET_PROXY_PORT'] = port
+                    env['GAIANET_PROXY_USER'] = user
+                    env['GAIANET_PROXY_PASS'] = password
             
             # 设置更宽松的curl选项以处理SSL问题
             env['CURL_CA_BUNDLE'] = ''  # 禁用证书验证（仅用于下载）
@@ -1095,7 +1160,7 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
         # 显示将要删除的目录列表
         dir_list = "\n".join([f"• {name}: {path}" for name, path in directories_to_delete])
         
-        # 二次确认对话框
+        # 确认对话框
         result = messagebox.askyesno(
             "⚠️ 危险操作确认", 
             f"即将删除以下 {len(directories_to_delete)} 个从节点目录:\n\n{dir_list}\n\n"
@@ -1108,30 +1173,8 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             "💡 主节点目录 ~/gaianet 不会被删除"
         )
         
-        if not result:
-            return
-            
-        # 最终确认
-        final_confirm = messagebox.askyesno(
-            "最终确认", 
-            f"您确定要删除 {len(directories_to_delete)} 个从节点目录吗？\n\n"
-            "输入 'YES' 来确认此危险操作",
-            icon='warning'
-        )
-        
-        if final_confirm:
-            # 弹出输入框要求用户输入 YES
-            import tkinter.simpledialog as simpledialog
-            user_input = simpledialog.askstring(
-                "安全确认", 
-                "请输入 'YES' (大写) 来确认删除从节点目录操作:",
-                show='*'  # 隐藏输入内容
-            )
-            
-            if user_input == "YES":
-                self.run_async_operation("删除从节点目录中...", self._delete_slave_nodes_directories, directories_to_delete)
-            else:
-                messagebox.showinfo("已取消", "删除操作已取消")
+        if result:
+            self.run_async_operation("删除从节点目录中...", self._delete_slave_nodes_directories, directories_to_delete)
         
     def delete_main_node_directory(self):
         """删除主节点目录"""
@@ -1159,31 +1202,8 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             "❗ 此操作无法撤销，确定要继续吗？"
         )
         
-        if not result:
-            return
-            
-        # 最终确认
-        final_confirm = messagebox.askyesno(
-            "最终确认 - 主节点删除", 
-            "您确定要删除主节点目录吗？\n\n"
-            "这将删除整个GaiaNet安装！\n"
-            "输入 'DELETE MAIN' 来确认此极度危险操作",
-            icon='warning'
-        )
-        
-        if final_confirm:
-            # 弹出输入框要求用户输入特殊确认文本
-            import tkinter.simpledialog as simpledialog
-            user_input = simpledialog.askstring(
-                "安全确认", 
-                "请输入 'DELETE MAIN' (注意大小写和空格) 来确认删除主节点:",
-                show='*'  # 隐藏输入内容
-            )
-            
-            if user_input == "DELETE MAIN":
-                self.run_async_operation("删除主节点目录中...", self._delete_main_node_directory, main_node_path)
-            else:
-                messagebox.showinfo("已取消", "删除操作已取消")
+        if result:
+            self.run_async_operation("删除主节点目录中...", self._delete_main_node_directory, main_node_path)
         
     def _delete_slave_nodes_directories(self, directories_to_delete):
         """执行删除所有从节点目录"""

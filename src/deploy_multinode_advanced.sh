@@ -718,16 +718,40 @@ init_nodes() {
             info "    生成独立的节点身份..."
             cd "$base_dir"
             
-            # 创建nodeid.json模板并生成新的身份
-            info "    创建nodeid.json模板..."
-            # 创建一个带换行符的空JSON对象
-            cat > nodeid.json << 'EOF'
-{
-}
-EOF
-            info "    ✅ nodeid.json模板创建成功"
+            # 下载官方nodeid.json模板并生成新的身份
+            info "    下载官方nodeid.json模板..."
+            # 配置代理参数（可通过环境变量设置）
+            local proxy_url=""
+            if [ -n "$GAIANET_PROXY_HOST" ] && [ -n "$GAIANET_PROXY_PORT" ] && [ -n "$GAIANET_PROXY_USER" ] && [ -n "$GAIANET_PROXY_PASS" ]; then
+                proxy_url="http://$GAIANET_PROXY_USER:$GAIANET_PROXY_PASS@$GAIANET_PROXY_HOST:$GAIANET_PROXY_PORT"
+                info "    使用代理: $GAIANET_PROXY_HOST:$GAIANET_PROXY_PORT"
+            fi
             
-            # 基于创建的模板使用 wasmedge 生成完整身份信息
+            # 重试下载官方模板
+            local download_success=false
+            for attempt in 1 2 3; do
+                local curl_cmd="curl -sSfL --insecure"
+                if [ -n "$proxy_url" ]; then
+                    curl_cmd="$curl_cmd --proxy '$proxy_url'"
+                fi
+                
+                if eval "$curl_cmd 'https://raw.githubusercontent.com/GaiaNet-AI/gaianet-node/main/nodeid.json' -o nodeid.json"; then
+                    download_success=true
+                    info "    ✅ 官方nodeid.json模板下载成功"
+                    break
+                else
+                    warning "    ⚠️  第 $attempt 次下载失败，重试中..."
+                    sleep 2
+                fi
+            done
+            
+            # 如果下载失败，创建基础模板
+            if [ "$download_success" = "false" ]; then
+                warning "    ❗ 无法下载官方模板，创建基础模板"
+                rm -f nodeid.json
+            fi
+            
+            # 使用 wasmedge 生成完整身份信息
             info "    使用 wasmedge 生成完整身份信息..."
             if [ -f "$HOME/gaianet/registry.wasm" ]; then
                 wasmedge --dir .:. "$HOME/gaianet/registry.wasm"
