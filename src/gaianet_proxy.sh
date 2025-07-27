@@ -34,23 +34,48 @@ warning() {
     printf "${YELLOW}$1${NC}\n"
 }
 
-# 检查共享服务是否运行
+# 检查共享服务是否运行（增加重试逻辑）
 check_shared_services() {
     info "[+] 检查共享模型服务状态..."
     
-    # 检查Chat服务
-    if curl -s --max-time 5 "$SHARED_CHAT_URL/v1/models" >/dev/null 2>&1; then
-        info "    ✅ Chat服务正常运行: $SHARED_CHAT_URL"
-    else
+    # 检查Chat服务（带重试）
+    local chat_success=false
+    for retry in 1 2 3; do
+        if curl -s --max-time 10 "$SHARED_CHAT_URL/v1/models" >/dev/null 2>&1; then
+            info "    ✅ Chat服务正常运行: $SHARED_CHAT_URL"
+            chat_success=true
+            break
+        else
+            if [ $retry -lt 3 ]; then
+                warning "    ⚠️  Chat服务繁忙或暂时不可用，重试 $retry/3..."
+                sleep 5
+            fi
+        fi
+    done
+    
+    if [ "$chat_success" = false ]; then
         error "    ❌ Chat服务不可用: $SHARED_CHAT_URL"
         error "    请先启动共享模型服务: ./start_shared_model_services.sh start"
+        error "    或等待服务完成当前请求处理"
         exit 1
     fi
     
-    # 检查Embedding服务
-    if curl -s --max-time 5 "$SHARED_EMBEDDING_URL/v1/models" >/dev/null 2>&1; then
-        info "    ✅ Embedding服务正常运行: $SHARED_EMBEDDING_URL"
-    else
+    # 检查Embedding服务（带重试）
+    local embedding_success=false
+    for retry in 1 2 3; do
+        if curl -s --max-time 10 "$SHARED_EMBEDDING_URL/v1/models" >/dev/null 2>&1; then
+            info "    ✅ Embedding服务正常运行: $SHARED_EMBEDDING_URL"
+            embedding_success=true
+            break
+        else
+            if [ $retry -lt 3 ]; then
+                warning "    ⚠️  Embedding服务繁忙或暂时不可用，重试 $retry/3..."
+                sleep 3
+            fi
+        fi
+    done
+    
+    if [ "$embedding_success" = false ]; then
         error "    ❌ Embedding服务不可用: $SHARED_EMBEDDING_URL"
         error "    请先启动共享模型服务: ./start_shared_model_services.sh start"
         exit 1
@@ -435,17 +460,42 @@ show_proxy_status() {
         error "    ❌ gaia-nexus未运行"
     fi
     
-    # 检查共享服务连接
+    # 检查共享服务连接（带重试）
     info "    共享服务状态:"
-    if curl -s --max-time 3 "$SHARED_CHAT_URL/v1/models" >/dev/null 2>&1; then
-        info "      ✅ Chat服务连接正常: $SHARED_CHAT_URL"
-    else
+    
+    # Chat服务状态检查（带重试）
+    local chat_ok=false
+    for retry in 1 2 3; do
+        if curl -s --max-time 5 "$SHARED_CHAT_URL/v1/models" >/dev/null 2>&1; then
+            info "      ✅ Chat服务连接正常: $SHARED_CHAT_URL"
+            chat_ok=true
+            break
+        else
+            if [ $retry -lt 3 ]; then
+                sleep 2
+            fi
+        fi
+    done
+    
+    if [ "$chat_ok" = false ]; then
         error "      ❌ Chat服务连接失败: $SHARED_CHAT_URL"
     fi
     
-    if curl -s --max-time 3 "$SHARED_EMBEDDING_URL/v1/models" >/dev/null 2>&1; then
-        info "      ✅ Embedding服务连接正常: $SHARED_EMBEDDING_URL"
-    else
+    # Embedding服务状态检查（带重试）
+    local embedding_ok=false
+    for retry in 1 2 3; do
+        if curl -s --max-time 5 "$SHARED_EMBEDDING_URL/v1/models" >/dev/null 2>&1; then
+            info "      ✅ Embedding服务连接正常: $SHARED_EMBEDDING_URL"
+            embedding_ok=true
+            break
+        else
+            if [ $retry -lt 3 ]; then
+                sleep 2
+            fi
+        fi
+    done
+    
+    if [ "$embedding_ok" = false ]; then
         error "      ❌ Embedding服务连接失败: $SHARED_EMBEDDING_URL"
     fi
 }

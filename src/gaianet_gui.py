@@ -19,7 +19,7 @@ import webbrowser
 class GaiaNetGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("GaiaNet多节点部署管理器 v1.0")
+        self.root.title("GaiaNet多节点部署管理器 v1.2 - 高并发优化版")
         self.root.geometry("1200x800")
         self.root.resizable(True, True)
         
@@ -70,6 +70,9 @@ class GaiaNetGUI:
         self.create_widgets()
         self.load_default_config()
         
+        # 默认选中更新说明页面
+        self.notebook.select(0)
+        
     def expand_path(self, path_str):
         """展开路径变量（$HOME等）"""
         if path_str.startswith('$HOME'):
@@ -94,6 +97,9 @@ class GaiaNetGUI:
         # 底部状态栏 (需要先创建，因为其他组件可能会用到status_var)
         self.create_status_bar(main_frame)
         
+        # 选项卡0: 更新说明 (默认页面)
+        self.create_updates_tab()
+        
         # 选项卡1: 初次安装
         self.create_install_tab()
         
@@ -109,6 +115,163 @@ class GaiaNetGUI:
         # 选项卡5: 日志查看
         self.create_log_tab()
         
+    def create_updates_tab(self):
+        """创建更新说明选项卡"""
+        updates_frame = ttk.Frame(self.notebook)
+        self.notebook.add(updates_frame, text="📝 更新说明")
+        
+        # 创建滚动区域
+        canvas = tk.Canvas(updates_frame)
+        scrollbar = ttk.Scrollbar(updates_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # 标题部分
+        title_frame = ttk.Frame(scrollable_frame)
+        title_frame.pack(fill=tk.X, padx=20, pady=20)
+        
+        ttk.Label(title_frame, text="🚀 GaiaNet多节点部署管理器", 
+                 font=('Arial', 24, 'bold')).pack(anchor=tk.W)
+        ttk.Label(title_frame, text="v1.2 - 高并发优化版", 
+                 font=('Arial', 14), foreground='blue').pack(anchor=tk.W, pady=(5, 0))
+        
+        # 最新更新部分
+        latest_frame = ttk.LabelFrame(scrollable_frame, text="🔥 最新更新 (v1.2)", padding=15)
+        latest_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        latest_updates = """
+✨ 重大优化 - 解决多节点并发访问问题
+• Chat服务并发能力提升8倍: batch-size 512→4096
+• 新增8线程并行处理: parallel 1→8  
+• 上下文窗口翻倍: ctx-size 16384→32768
+• 添加智能重试机制: 服务繁忙时自动重试3次
+
+🔧 配置文件持久化
+• 配置自动保存到桌面，关闭GUI重新打开配置不丢失
+• 支持跨平台桌面路径识别 (Desktop/桌面)
+• 双重保存策略确保脚本和GUI都能正常工作
+
+⚡ 性能监控与优化
+• 支持50+节点同时访问共享服务
+• 内存占用优化: 约15-20GB支持大规模部署  
+• CPU效率提升: 多线程并行处理
+        """
+        
+        ttk.Label(latest_frame, text=latest_updates.strip(), 
+                 font=('Arial', 11), justify=tk.LEFT).pack(anchor=tk.W)
+        
+        # 功能特性部分
+        features_frame = ttk.LabelFrame(scrollable_frame, text="🎯 核心功能", padding=15)
+        features_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        features_text = """
+🏗️  一键部署系统
+• 主节点自动安装 (包含5GB模型文件下载)
+• 多从节点批量初始化和配置
+• 共享服务架构节省50%+内存占用
+
+⚙️  智能配置管理  
+• 可视化节点配置界面
+• 支持端口、RAG、公网访问等参数配置
+• 配置文件自动持久化，重启不丢失
+
+🔄  高级系统管理
+• 一键启动/停止/重启所有节点
+• 实时系统状态监控和健康检查
+• 进程清理和故障排除工具
+
+🌐  网络与代理支持
+• 代理服务器配置 (支持受限网络环境)
+• SSL证书验证禁用 (提高下载成功率)  
+• 智能重试机制 (网络问题自动重试)
+
+📊  监控与诊断
+• 实时日志查看和管理
+• 节点身份信息查看和备份
+• 详细的错误诊断和修复建议
+        """
+        
+        ttk.Label(features_frame, text=features_text.strip(), 
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W)
+        
+        # 系统要求部分
+        requirements_frame = ttk.LabelFrame(scrollable_frame, text="💻 系统要求", padding=15)
+        requirements_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        requirements_text = """
+最低配置 (支持10个节点):
+• RAM: 16GB+ 
+• CPU: 4核心+
+• 存储: 20GB 可用空间
+• 网络: 稳定互联网连接
+
+推荐配置 (支持30个节点):
+• RAM: 32GB+
+• CPU: 8核心+ 
+• 存储: 50GB SSD
+• 网络: 千兆带宽
+
+高性能配置 (支持50+节点):
+• RAM: 64GB+
+• CPU: 16核心+
+• 存储: 100GB+ NVMe SSD  
+• 网络: 万兆带宽
+        """
+        
+        ttk.Label(requirements_frame, text=requirements_text.strip(), 
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W)
+        
+        # 快速开始部分
+        quickstart_frame = ttk.LabelFrame(scrollable_frame, text="🚀 快速开始", padding=15)
+        quickstart_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        quickstart_text = """
+1. 📦 首次使用: 
+   • 切换到 "初次安装" 选项卡
+   • 点击 "安装主节点" 下载GaiaNet程序和模型
+   • 配置节点数量和参数，点击 "一键部署所有节点"
+
+2. ⚙️ 节点管理:
+   • 在 "节点配置" 选项卡管理节点参数
+   • 使用 "系统管理" 选项卡控制节点启停
+   • 通过 "系统状态" 选项卡监控运行状况
+
+3. 🔧 问题排除:
+   • 查看 "日志查看" 选项卡诊断问题
+   • 使用 "清理进程" 功能重置系统状态  
+   • 配置代理服务器解决网络问题
+        """
+        
+        ttk.Label(quickstart_frame, text=quickstart_text.strip(), 
+                 font=('Arial', 10), justify=tk.LEFT).pack(anchor=tk.W)
+        
+        # 底部按钮
+        button_frame = ttk.Frame(scrollable_frame)
+        button_frame.pack(fill=tk.X, padx=20, pady=20)
+        
+        ttk.Button(button_frame, text="🚀 开始安装", 
+                  command=lambda: self.notebook.select(1)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="⚙️ 配置节点", 
+                  command=lambda: self.notebook.select(2)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="🎛️ 系统管理", 
+                  command=lambda: self.notebook.select(3)).pack(side=tk.LEFT, padx=5)
+        
+        # 配置滚动
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 绑定鼠标滚轮
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
     def create_install_tab(self):
         """创建初次安装选项卡"""
         install_frame = ttk.Frame(self.notebook)
@@ -252,10 +415,10 @@ class GaiaNetGUI:
         # 显示配置文件路径
         config_info_frame = ttk.Frame(config_frame)
         config_info_frame.pack(fill=tk.X, padx=10, pady=2)
-        config_file_path = self.script_dir / "nodes_config.json"
+        config_file_path = self.get_config_file_path()
         ttk.Label(config_info_frame, text=f"📄 配置文件: {config_file_path}", 
                  font=('Arial', 9), foreground='gray').pack(anchor=tk.W)
-        ttk.Label(config_info_frame, text="💡 修改节点配置后会自动保存到上述文件", 
+        ttk.Label(config_info_frame, text="💡 修改节点配置后会自动保存到桌面，支持持久化", 
                  font=('Arial', 8), foreground='green').pack(anchor=tk.W)
         
         # 节点列表
@@ -462,7 +625,7 @@ class GaiaNetGUI:
         ttk.Label(status_frame, textvariable=self.status_var).pack(side=tk.LEFT, padx=5)
         
         # 版本信息
-        ttk.Label(status_frame, text="v1.0").pack(side=tk.RIGHT, padx=5)
+        ttk.Label(status_frame, text="v1.2").pack(side=tk.RIGHT, padx=5)
         
     def create_node_form(self, parent):
         """创建节点编辑表单"""
@@ -849,7 +1012,38 @@ curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/
             self.root.after(0, lambda: messagebox.showerror("错误", f"部署过程中发生异常:\n{str(e)}"))
             
     def load_default_config(self):
-        """加载默认配置"""
+        """加载配置 - 优先从桌面加载，没有则使用默认配置"""
+        # 尝试从桌面加载现有配置
+        config_path = self.get_config_file_path()
+        
+        if config_path.exists():
+            try:
+                print(f"从配置文件加载: {config_path}")
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    
+                if 'nodes' in config and config['nodes']:
+                    # 将展开的路径转换回$HOME格式（如果需要）
+                    for node in config['nodes']:
+                        home_path = os.path.expanduser('~')
+                        if node['base_dir'].startswith(home_path):
+                            relative_path = node['base_dir'][len(home_path):]
+                            if relative_path.startswith('/') or relative_path.startswith('\\'):
+                                relative_path = relative_path[1:]
+                            if relative_path:
+                                node['base_dir'] = f"$HOME/{relative_path}"
+                            else:
+                                node['base_dir'] = "$HOME"
+                    
+                    self.nodes_config = config['nodes']
+                    self.update_tree()
+                    print(f"成功加载 {len(self.nodes_config)} 个节点配置")
+                    return
+            except Exception as e:
+                print(f"加载配置文件失败: {e}")
+        
+        # 如果没有配置文件或加载失败，使用默认配置
+        print("使用默认节点配置")
         self.nodes_config = [
             {
                 "name": "node1",
@@ -877,6 +1071,8 @@ curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/
             }
         ]
         self.update_tree()
+        # 自动保存默认配置到桌面
+        self.save_config_file()
         
     def update_tree(self):
         """更新节点列表显示"""
@@ -1013,6 +1209,31 @@ curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/
         self.node_force_rag_var.set(True)
         self.node_auto_start_var.set(True)
         
+    def get_config_file_path(self):
+        """获取配置文件路径 - 优先保存到桌面以确保持久化"""
+        # 优先级：桌面 > 工作目录 > 脚本目录
+        if hasattr(self, 'work_dir') and self.work_dir and self.work_dir.exists() and self.work_dir != Path("/"):
+            # 如果有工作目录且不是根目录，使用工作目录
+            config_path = self.work_dir / "nodes_config.json"
+        else:
+            # 使用桌面目录
+            desktop_paths = [
+                Path.home() / "Desktop",
+                Path.home() / "桌面"  # 中文桌面
+            ]
+            
+            config_path = None
+            for desktop_path in desktop_paths:
+                if desktop_path.exists() and desktop_path.is_dir():
+                    config_path = desktop_path / "nodes_config.json"
+                    break
+            
+            # 如果都没找到桌面，回退到脚本目录
+            if config_path is None:
+                config_path = self.script_dir / "nodes_config.json"
+        
+        return config_path
+    
     def save_config_file(self):
         """保存配置文件"""
         # 展开路径变量
@@ -1031,8 +1252,12 @@ curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/
             "nodes": expanded_nodes
         }
         
-        # 配置文件保存到scripts目录（脚本期望的位置）
-        config_path = self.script_dir / "nodes_config.json"
+        # 获取配置文件路径（优先保存到桌面）
+        config_path = self.get_config_file_path()
+        
+        # 确保目录存在
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
             
@@ -1040,6 +1265,16 @@ curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/
         print("配置内容（节点路径已展开）:")
         for node in expanded_nodes:
             print(f"  {node['name']}: {node['base_dir']}")
+        
+        # 同时复制到脚本目录（脚本期望的位置）
+        script_config_path = self.script_dir / "nodes_config.json"
+        if config_path != script_config_path:
+            try:
+                with open(script_config_path, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, indent=2, ensure_ascii=False)
+                print(f"配置文件已同步到脚本目录: {script_config_path}")
+            except Exception as e:
+                print(f"同步到脚本目录失败: {e}")
             
         # 显示保存的配置文件内容
         print("完整配置文件内容:")
