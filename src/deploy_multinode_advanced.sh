@@ -544,18 +544,12 @@ init_nodes() {
             info "    生成独立的节点身份..."
             cd "$base_dir"
             
-            # 下载官方nodeid.json模板并生成新的身份
-            if command -v curl >/dev/null 2>&1; then
-                curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/nodeid.json' -o nodeid.json
-            elif command -v wget >/dev/null 2>&1; then
-                wget -q 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/nodeid.json'
-            else
-                error "    ❌ 需要curl或wget来下载nodeid.json模板"
-                rmdir "$base_dir" 2>/dev/null || true
-                continue
-            fi
+            # 创建nodeid.json模板并生成新的身份
+            info "    创建nodeid.json模板..."
+            echo '{}' > nodeid.json
+            info "    ✅ nodeid.json模板创建成功"
             
-            # 基于下载的模板使用 wasmedge 生成完整身份信息
+            # 基于创建的模板使用 wasmedge 生成完整身份信息
             info "    使用 wasmedge 生成完整身份信息..."
             if [ -f "$HOME/gaianet/registry.wasm" ]; then
                 wasmedge --dir .:. "$HOME/gaianet/registry.wasm"

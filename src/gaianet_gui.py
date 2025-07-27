@@ -290,6 +290,14 @@ class GaiaNetGUI:
         ttk.Button(btn_frame2, text="🆔 查看身份信息", 
                   command=self.show_identity_info, width=20).pack(side=tk.LEFT, padx=5)
         
+        btn_frame3 = ttk.Frame(ops_frame)
+        btn_frame3.pack(fill=tk.X, pady=5)
+        
+        ttk.Button(btn_frame3, text="🗑️ 删除所有从节点目录", 
+                  command=self.delete_all_slave_nodes_directories, width=20).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame3, text="🗑️ 删除主节点目录", 
+                  command=self.delete_main_node_directory, width=20).pack(side=tk.LEFT, padx=5)
+        
         # 高级操作
         advanced_frame = ttk.LabelFrame(mgmt_frame, text="高级操作", padding=10)
         advanced_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -1028,6 +1036,214 @@ curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/
             
         self.run_async_operation("获取身份信息中...", self._run_script_command, "identity")
         
+    def delete_all_slave_nodes_directories(self):
+        """删除所有从节点目录"""
+        if self.is_running:
+            messagebox.showwarning("警告", "有操作正在进行中，请稍候...")
+            return
+            
+        # 首先获取要删除的从节点目录列表
+        directories_to_delete = []
+        for node in self.nodes_config:
+            expanded_path = self.expand_path(node['base_dir'])
+            if os.path.exists(expanded_path):
+                directories_to_delete.append((node['name'], expanded_path))
+        
+        if not directories_to_delete:
+            messagebox.showinfo("提示", "没有找到需要删除的从节点目录")
+            return
+            
+        # 显示将要删除的目录列表
+        dir_list = "\n".join([f"• {name}: {path}" for name, path in directories_to_delete])
+        
+        # 二次确认对话框
+        result = messagebox.askyesno(
+            "⚠️ 危险操作确认", 
+            f"即将删除以下 {len(directories_to_delete)} 个从节点目录:\n\n{dir_list}\n\n"
+            "⚠️ 警告: 此操作将永久删除:\n"
+            "• 所有从节点配置文件\n"
+            "• 从节点身份信息 (keystore)\n" 
+            "• 从节点日志文件\n"
+            "• 其他从节点数据\n\n"
+            "❗ 此操作无法撤销，确定要继续吗？\n"
+            "💡 主节点目录 ~/gaianet 不会被删除"
+        )
+        
+        if not result:
+            return
+            
+        # 最终确认
+        final_confirm = messagebox.askyesno(
+            "最终确认", 
+            f"您确定要删除 {len(directories_to_delete)} 个从节点目录吗？\n\n"
+            "输入 'YES' 来确认此危险操作",
+            icon='warning'
+        )
+        
+        if final_confirm:
+            # 弹出输入框要求用户输入 YES
+            import tkinter.simpledialog as simpledialog
+            user_input = simpledialog.askstring(
+                "安全确认", 
+                "请输入 'YES' (大写) 来确认删除从节点目录操作:",
+                show='*'  # 隐藏输入内容
+            )
+            
+            if user_input == "YES":
+                self.run_async_operation("删除从节点目录中...", self._delete_slave_nodes_directories, directories_to_delete)
+            else:
+                messagebox.showinfo("已取消", "删除操作已取消")
+        
+    def delete_main_node_directory(self):
+        """删除主节点目录"""
+        if self.is_running:
+            messagebox.showwarning("警告", "有操作正在进行中，请稍候...")
+            return
+            
+        main_node_path = os.path.expanduser("~/gaianet")
+        
+        if not os.path.exists(main_node_path):
+            messagebox.showinfo("提示", f"主节点目录不存在: {main_node_path}")
+            return
+            
+        # 危险操作确认
+        result = messagebox.askyesno(
+            "⚠️ 极度危险操作确认", 
+            f"即将删除主节点目录:\n{main_node_path}\n\n"
+            "⚠️ 警告: 此操作将永久删除:\n"
+            "• GaiaNet主程序文件\n"
+            "• 主节点配置文件\n"
+            "• 主节点身份信息\n"
+            "• 所有下载的模型文件 (数GB)\n"
+            "• 主节点日志和数据\n\n"
+            "❗ 删除后需要重新安装整个GaiaNet系统！\n"
+            "❗ 此操作无法撤销，确定要继续吗？"
+        )
+        
+        if not result:
+            return
+            
+        # 最终确认
+        final_confirm = messagebox.askyesno(
+            "最终确认 - 主节点删除", 
+            "您确定要删除主节点目录吗？\n\n"
+            "这将删除整个GaiaNet安装！\n"
+            "输入 'DELETE MAIN' 来确认此极度危险操作",
+            icon='warning'
+        )
+        
+        if final_confirm:
+            # 弹出输入框要求用户输入特殊确认文本
+            import tkinter.simpledialog as simpledialog
+            user_input = simpledialog.askstring(
+                "安全确认", 
+                "请输入 'DELETE MAIN' (注意大小写和空格) 来确认删除主节点:",
+                show='*'  # 隐藏输入内容
+            )
+            
+            if user_input == "DELETE MAIN":
+                self.run_async_operation("删除主节点目录中...", self._delete_main_node_directory, main_node_path)
+            else:
+                messagebox.showinfo("已取消", "删除操作已取消")
+        
+    def _delete_slave_nodes_directories(self, directories_to_delete):
+        """执行删除所有从节点目录"""
+        try:
+            self.root.after(0, lambda: self.append_mgmt_log("🗑️ 开始删除所有从节点目录..."))
+            
+            deleted_count = 0
+            failed_count = 0
+            
+            for node_name, dir_path in directories_to_delete:
+                try:
+                    self.root.after(0, lambda n=node_name, p=dir_path: 
+                                   self.append_mgmt_log(f"🗑️ 正在删除从节点 {n}: {p}"))
+                    
+                    if os.path.exists(dir_path):
+                        # 使用跨平台的删除命令
+                        if sys.platform == "win32":
+                            # Windows
+                            import shutil
+                            shutil.rmtree(dir_path)
+                        else:
+                            # macOS/Linux
+                            subprocess.run(['rm', '-rf', dir_path], check=True)
+                        
+                        self.root.after(0, lambda n=node_name: 
+                                       self.append_mgmt_log(f"✅ 从节点 {n} 目录删除成功"))
+                        deleted_count += 1
+                    else:
+                        self.root.after(0, lambda n=node_name: 
+                                       self.append_mgmt_log(f"⚠️ 从节点 {n} 目录不存在，跳过"))
+                        
+                except Exception as e:
+                    error_msg = f"删除从节点 {node_name} 失败: {str(e)}"
+                    self.root.after(0, lambda msg=error_msg: self.append_mgmt_log(f"❌ {msg}"))
+                    failed_count += 1
+            
+            # 删除完成后的结果报告
+            success_msg = f"✅ 从节点删除操作完成！成功: {deleted_count}, 失败: {failed_count}"
+            self.update_status(success_msg)
+            self.root.after(0, lambda: self.append_mgmt_log(success_msg))
+            
+            if failed_count == 0:
+                self.root.after(0, lambda: messagebox.showinfo("删除完成", 
+                    f"所有从节点目录删除成功！\n\n"
+                    f"已删除 {deleted_count} 个从节点目录\n"
+                    f"主节点目录 ~/gaianet 保持不变\n"
+                    f"现在可以重新初始化从节点"))
+            else:
+                self.root.after(0, lambda: messagebox.showwarning("删除完成", 
+                    f"从节点删除操作完成，但有部分失败\n\n"
+                    f"成功: {deleted_count} 个目录\n"
+                    f"失败: {failed_count} 个目录\n\n"
+                    f"请查看操作日志了解详细信息"))
+                
+        except Exception as e:
+            error_msg = f"从节点删除操作异常: {str(e)}"
+            self.update_status(f"❌ {error_msg}")
+            self.root.after(0, lambda: self.append_mgmt_log(f"❌ {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"从节点删除操作失败:\n{str(e)}"))
+    
+    def _delete_main_node_directory(self, main_node_path):
+        """执行删除主节点目录"""
+        try:
+            self.root.after(0, lambda: self.append_mgmt_log("🗑️ 开始删除主节点目录..."))
+            self.root.after(0, lambda p=main_node_path: self.append_mgmt_log(f"🗑️ 目标路径: {p}"))
+            
+            if os.path.exists(main_node_path):
+                # 使用跨平台的删除命令
+                if sys.platform == "win32":
+                    # Windows
+                    import shutil
+                    shutil.rmtree(main_node_path)
+                else:
+                    # macOS/Linux
+                    subprocess.run(['rm', '-rf', main_node_path], check=True)
+                
+                success_msg = "✅ 主节点目录删除成功"
+                self.update_status(success_msg)
+                self.root.after(0, lambda: self.append_mgmt_log(success_msg))
+                self.root.after(0, lambda: self.append_mgmt_log("💡 GaiaNet主程序已完全卸载"))
+                
+                self.root.after(0, lambda: messagebox.showinfo("删除完成", 
+                    "主节点目录删除成功！\n\n"
+                    "✅ GaiaNet主程序已完全卸载\n"
+                    "✅ 所有模型文件已删除\n"
+                    "✅ 主节点配置和数据已清空\n\n"
+                    "💡 如需重新使用，请点击'安装主节点'重新安装"))
+            else:
+                warning_msg = "⚠️ 主节点目录不存在，无需删除"
+                self.update_status(warning_msg)
+                self.root.after(0, lambda: self.append_mgmt_log(warning_msg))
+                self.root.after(0, lambda: messagebox.showinfo("提示", f"主节点目录不存在: {main_node_path}"))
+                
+        except Exception as e:
+            error_msg = f"主节点删除操作异常: {str(e)}"
+            self.update_status(f"❌ {error_msg}")
+            self.root.after(0, lambda: self.append_mgmt_log(f"❌ {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"主节点删除操作失败:\n{str(e)}"))
+            
     def fix_device_id(self):
         """修复Device ID"""
         if self.is_running:
