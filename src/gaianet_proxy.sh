@@ -40,15 +40,15 @@ check_shared_services() {
     
     # 检查Chat服务（带重试）
     local chat_success=false
-    for retry in 1 2 3; do
+    for retry in 1 2 3 4 5; do
         if curl -s --max-time 10 "$SHARED_CHAT_URL/v1/models" >/dev/null 2>&1; then
             info "    ✅ Chat服务正常运行: $SHARED_CHAT_URL"
             chat_success=true
             break
         else
-            if [ $retry -lt 3 ]; then
-                warning "    ⚠️  Chat服务繁忙或暂时不可用，重试 $retry/3..."
-                sleep 5
+            if [ $retry -lt 5 ]; then
+                warning "    ⚠️  Chat服务繁忙或暂时不可用，重试 $retry/5..."
+                sleep 7
             fi
         fi
     done
@@ -62,15 +62,15 @@ check_shared_services() {
     
     # 检查Embedding服务（带重试）
     local embedding_success=false
-    for retry in 1 2 3; do
+    for retry in 1 2 3 4 5; do
         if curl -s --max-time 10 "$SHARED_EMBEDDING_URL/v1/models" >/dev/null 2>&1; then
             info "    ✅ Embedding服务正常运行: $SHARED_EMBEDDING_URL"
             embedding_success=true
             break
         else
-            if [ $retry -lt 3 ]; then
-                warning "    ⚠️  Embedding服务繁忙或暂时不可用，重试 $retry/3..."
-                sleep 3
+            if [ $retry -lt 5 ]; then
+                warning "    ⚠️  Embedding服务繁忙或暂时不可用，重试 $retry/5..."
+                sleep 5
             fi
         fi
     done
@@ -465,14 +465,14 @@ show_proxy_status() {
     
     # Chat服务状态检查（带重试）
     local chat_ok=false
-    for retry in 1 2 3; do
+    for retry in 1 2 3 4 5; do
         if curl -s --max-time 5 "$SHARED_CHAT_URL/v1/models" >/dev/null 2>&1; then
             info "      ✅ Chat服务连接正常: $SHARED_CHAT_URL"
             chat_ok=true
             break
         else
-            if [ $retry -lt 3 ]; then
-                sleep 2
+            if [ $retry -lt 5 ]; then
+                sleep 4
             fi
         fi
     done
@@ -483,14 +483,14 @@ show_proxy_status() {
     
     # Embedding服务状态检查（带重试）
     local embedding_ok=false
-    for retry in 1 2 3; do
+    for retry in 1 2 3 4 5; do
         if curl -s --max-time 5 "$SHARED_EMBEDDING_URL/v1/models" >/dev/null 2>&1; then
             info "      ✅ Embedding服务连接正常: $SHARED_EMBEDDING_URL"
             embedding_ok=true
             break
         else
-            if [ $retry -lt 3 ]; then
-                sleep 2
+            if [ $retry -lt 5 ]; then
+                sleep 3
             fi
         fi
     done
