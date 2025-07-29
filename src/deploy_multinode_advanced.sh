@@ -771,6 +771,10 @@ init_nodes() {
             
             # 使用 wasmedge 生成完整身份信息
             info "    使用 wasmedge 生成完整身份信息..."
+            
+            # 确保环境变量包含wasmedge路径
+            export PATH="$HOME/gaianet/bin:$HOME/.wasmedge/bin:$PATH"
+            
             if [ -f "$HOME/gaianet/registry.wasm" ]; then
                 wasmedge --dir .:. "$HOME/gaianet/registry.wasm"
                 if [ $? -eq 0 ]; then
