@@ -24,12 +24,19 @@ INSTALL_DIR="$HOME/Desktop/gaia-gui-mac"
 # 解析命令行参数
 AUTO_DEPLOY=false
 CREATE_CONFIG=false
+FULL_AUTO=false
 NODES_COUNT=20
 WALLET_KEY=""
+DOMAIN_ID=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --auto-deploy)
+            AUTO_DEPLOY=true
+            shift
+            ;;
+        --full-auto)
+            FULL_AUTO=true
             AUTO_DEPLOY=true
             shift
             ;;
@@ -45,6 +52,10 @@ while [[ $# -gt 0 ]]; do
             WALLET_KEY="$2"
             shift 2
             ;;
+        --domain-id)
+            DOMAIN_ID="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "GaiaNet GUI 一键安装脚本"
             echo ""
@@ -52,16 +63,18 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "选项:"
             echo "  --auto-deploy     安装后自动部署节点"
+            echo "  --full-auto       完整自动化流程(新Mac推荐)"
             echo "  --create-config   创建配置文件后退出"
             echo "  --nodes NUM       节点数量 (默认: 20)"
-            echo "  --wallet KEY      钱包私钥"
+            echo "  --wallet KEY      钱包私钥(可选，不提供则自动生成)"
+            echo "  --domain-id ID    要加入的域ID(可选)"
             echo "  -h, --help        显示帮助信息"
             echo ""
             echo "示例:"
-            echo "  $0                           # 仅安装GUI"
-            echo "  $0 --auto-deploy            # 安装后自动部署"
-            echo "  $0 --create-config          # 创建配置文件"
-            echo "  $0 --auto-deploy --nodes 10 # 部署10个节点"
+            echo "  $0                                    # 仅安装GUI"
+            echo "  $0 --auto-deploy                     # 安装后自动部署"
+            echo "  $0 --full-auto --nodes 20 --domain-id 742  # 完整自动化(推荐)"
+            echo "  $0 --create-config                   # 创建配置文件"
             exit 0
             ;;
         *)
@@ -221,6 +234,194 @@ auto_deploy() {
     fi
 }
 
+# 完整自动化流程 (新Mac推荐)
+full_auto_deploy() {
+    highlight "🚀 开始完整自动化部署流程..."
+    highlight "📋 流程包括: 主节点安装 → 从节点初始化 → 启动节点 → 生成钱包 → 绑定节点 → 加入域"
+    
+    cd "$INSTALL_DIR"
+    
+    # 第1步: 安装主节点和下载模型文件
+    info "🔧 第1步: 安装GaiaNet主节点和下载模型文件..."
+    if ! install_main_gaianet_node; then
+        error "❌ 主节点安装失败"
+        exit 1
+    fi
+    
+    # 第2步: 创建从节点配置
+    info "📝 第2步: 创建从节点配置..."
+    create_nodes_config_for_full_auto
+    
+    # 第3步: 初始化从节点(复制主节点文件)
+    info "📂 第3步: 初始化从节点(复制主节点文件)..."
+    if ! python3 src/gaianet_gui.py --headless --init --config auto-deploy-config.json; then
+        error "❌ 从节点初始化失败"
+        exit 1
+    fi
+    
+    # 第4步: 启动所有节点
+    info "🚀 第4步: 启动所有节点..."
+    if ! python3 src/gaianet_gui.py --headless --start --config auto-deploy-config.json; then
+        error "❌ 节点启动失败"
+        exit 1
+    fi
+    
+    # 第5步: 生成钱包(如果未提供)
+    if [ -z "$WALLET_KEY" ]; then
+        info "🔑 第5步: 生成新钱包..."
+        generate_wallet_for_full_auto
+    else
+        info "🔑 第5步: 使用提供的钱包私钥..."
+    fi
+    
+    # 第6步: 批量绑定节点
+    info "🔗 第6步: 批量绑定节点..."
+    if ! python3 src/gaianet_gui.py --headless --batch-bind --config auto-deploy-config.json; then
+        error "❌ 批量绑定失败"
+        exit 1
+    fi
+    
+    # 第7步: 批量加入域(如果提供了域ID)
+    if [ -n "$DOMAIN_ID" ]; then
+        info "🌐 第7步: 批量加入域 $DOMAIN_ID..."
+        if ! python3 src/gaianet_gui.py --headless --batch-join-domain "$DOMAIN_ID" --config auto-deploy-config.json; then
+            error "❌ 批量加入域失败"
+            exit 1
+        fi
+    else
+        info "⏭️  第7步: 跳过域加入(未指定域ID)"
+    fi
+    
+    # 显示最终状态
+    highlight "🎉 完整自动化部署完成！"
+    info "📊 最终状态:"
+    python3 src/gaianet_gui.py --headless --status
+    
+    # 显示钱包信息
+    show_wallet_info_for_full_auto
+}
+
+# 安装GaiaNet主节点
+install_main_gaianet_node() {
+    info "  📥 下载并安装GaiaNet主节点..."
+    
+    # 检查是否已经安装
+    if [ -f "$HOME/gaianet/bin/gaianet" ]; then
+        info "  ✅ GaiaNet主节点已存在，跳过安装"
+        return 0
+    fi
+    
+    # 下载并安装GaiaNet
+    if curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash; then
+        info "  ✅ GaiaNet主节点安装完成"
+        
+        # 初始化主节点(下载模型文件)
+        info "  📦 初始化主节点和下载模型文件..."
+        cd "$HOME/gaianet"
+        if timeout 1800 ./bin/gaianet init; then  # 30分钟超时
+            info "  ✅ 主节点模型文件下载完成"
+            return 0
+        else
+            error "  ❌ 主节点模型文件下载失败或超时"
+            return 1
+        fi
+    else
+        error "  ❌ GaiaNet主节点安装失败"
+        return 1
+    fi
+}
+
+# 为完整自动化创建节点配置
+create_nodes_config_for_full_auto() {
+    info "  📝 创建$NODES_COUNT个节点的配置..."
+    
+    # 创建配置文件
+    python3 src/gaianet_gui.py --create-config --nodes "$NODES_COUNT"
+    
+    # 更新配置文件
+    if [ -n "$WALLET_KEY" ]; then
+        info "  🔑 配置提供的钱包私钥..."
+        
+        # 使用Python更新JSON配置
+        python3 -c "
+import json
+import sys
+
+try:
+    with open('auto-deploy-config.json', 'r') as f:
+        config = json.load(f)
+    
+    config['wallet']['private_key'] = '$WALLET_KEY'
+    config['wallet']['batch_bind']['enabled'] = True
+    config['wallet']['batch_bind']['count'] = $NODES_COUNT
+    config['nodes']['count'] = $NODES_COUNT
+    
+    if '$DOMAIN_ID':
+        config['wallet']['auto_join_domain'] = {
+            'enabled': True,
+            'domain_id': '$DOMAIN_ID'
+        }
+    
+    with open('auto-deploy-config.json', 'w') as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+    
+    print('✅ 配置文件已更新')
+except Exception as e:
+    print(f'❌ 配置更新失败: {e}')
+    sys.exit(1)
+"
+    else
+        info "  🔄 配置自动生成钱包..."
+    fi
+    
+    info "  ✅ 节点配置创建完成"
+}
+
+# 为完整自动化生成钱包
+generate_wallet_for_full_auto() {
+    info "  🔄 生成新钱包地址和私钥..."
+    
+    # 调用GUI的钱包生成功能
+    if python3 src/gaianet_gui.py --headless --generate-wallet --save-to auto-deploy-config.json; then
+        info "  ✅ 新钱包已生成并保存"
+    else
+        error "  ❌ 钱包生成失败"
+        exit 1
+    fi
+}
+
+# 显示钱包信息
+show_wallet_info_for_full_auto() {
+    info ""
+    highlight "💰 钱包信息:"
+    
+    if [ -f "auto-deploy-config.json" ]; then
+        python3 -c "
+import json
+
+try:
+    with open('auto-deploy-config.json', 'r') as f:
+        config = json.load(f)
+    
+    wallet = config.get('wallet', {})
+    if 'private_key' in wallet and 'address' in wallet:
+        print(f'🔑 私钥: {wallet[\"private_key\"]}')
+        print(f'📍 地址: {wallet[\"address\"]}')
+        print('')
+        print('⚠️  重要提醒:')
+        print('• 请立即备份私钥到安全位置')
+        print('• 私钥已保存在: auto-deploy-config.json')
+        print('• 钱包配置也已保存到桌面')
+    else:
+        print('❌ 未找到钱包信息')
+except Exception as e:
+    print(f'❌ 读取钱包信息失败: {e}')
+"
+    else
+        error "❌ 配置文件不存在"
+    fi
+}
+
 # 显示使用信息
 show_usage_info() {
     highlight "🎯 安装完成！使用方法："
@@ -250,7 +451,20 @@ main() {
     echo "=================================================="
     
     # 显示参数
-    if [ "$AUTO_DEPLOY" = true ]; then
+    if [ "$FULL_AUTO" = true ]; then
+        info "模式: 完整自动化部署 (新Mac推荐)"
+        info "节点数量: $NODES_COUNT"
+        if [ -n "$WALLET_KEY" ]; then
+            info "钱包: 使用提供的私钥"
+        else
+            info "钱包: 自动生成"
+        fi
+        if [ -n "$DOMAIN_ID" ]; then
+            info "域ID: $DOMAIN_ID"
+        else
+            info "域ID: 未指定，跳过域加入"
+        fi
+    elif [ "$AUTO_DEPLOY" = true ]; then
         info "模式: 安装 + 自动部署"
         info "节点数量: $NODES_COUNT"
         if [ -n "$WALLET_KEY" ]; then
@@ -272,7 +486,11 @@ main() {
         exit 0
     fi
     
-    if [ "$AUTO_DEPLOY" = true ]; then
+    if [ "$FULL_AUTO" = true ]; then
+        # 完整自动化流程
+        full_auto_deploy
+    elif [ "$AUTO_DEPLOY" = true ]; then
+        # 传统自动部署
         create_auto_config
         auto_deploy
     fi
