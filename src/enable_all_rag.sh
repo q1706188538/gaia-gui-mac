@@ -95,18 +95,18 @@ enable_rag_for_node() {
         info "    ✅ 创建qdrant目录"
     fi
     
-    # 3. 复制qdrant配置（如果node3有的话）
-    if [ -d "$HOME/gaianet_node3/qdrant" ] && [ "$node_dir" != "$HOME/gaianet_node3" ]; then
+    # 3. 复制qdrant配置（如果主节点有的话）
+    if [ -d "$HOME/gaianet/qdrant" ] && [ "$node_dir" != "$HOME/gaianet" ]; then
         # 复制qdrant基础配置文件
-        if [ -f "$HOME/gaianet_node3/qdrant/config.yaml" ]; then
-            cp "$HOME/gaianet_node3/qdrant/config.yaml" "$node_dir/qdrant/"
+        if [ -f "$HOME/gaianet/qdrant/config.yaml" ]; then
+            cp "$HOME/gaianet/qdrant/config.yaml" "$node_dir/qdrant/"
             info "    ✅ 复制qdrant配置文件"
         fi
     fi
     
     # 4. 确保bin/qdrant存在
-    if [ ! -f "$node_dir/bin/qdrant" ] && [ -f "$HOME/gaianet_node3/bin/qdrant" ]; then
-        cp "$HOME/gaianet_node3/bin/qdrant" "$node_dir/bin/"
+    if [ ! -f "$node_dir/bin/qdrant" ] && [ -f "$HOME/gaianet/bin/qdrant" ]; then
+        cp "$HOME/gaianet/bin/qdrant" "$node_dir/bin/"
         chmod +x "$node_dir/bin/qdrant"
         info "    ✅ 复制qdrant二进制文件"
     fi

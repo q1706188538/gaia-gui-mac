@@ -41,10 +41,10 @@ setup_shared_qdrant() {
     # 创建共享目录
     mkdir -p "$SHARED_QDRANT_DIR"
     
-    # 复制Qdrant二进制文件（从node3获取）
-    if [ -f "$HOME/gaianet_node3/bin/qdrant" ]; then
+    # 复制Qdrant二进制文件（从主节点获取）
+    if [ -f "$HOME/gaianet/bin/qdrant" ]; then
         if [ ! -f "$SHARED_QDRANT_DIR/qdrant" ]; then
-            cp "$HOME/gaianet_node3/bin/qdrant" "$SHARED_QDRANT_DIR/"
+            cp "$HOME/gaianet/bin/qdrant" "$SHARED_QDRANT_DIR/"
             chmod +x "$SHARED_QDRANT_DIR/qdrant"
             info "    ✅ 复制Qdrant二进制文件"
         fi

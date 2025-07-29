@@ -13,6 +13,7 @@ import threading
 import json
 import os
 import sys
+import re
 from pathlib import Path
 import webbrowser
 import requests
@@ -122,6 +123,12 @@ class GaiaNetGUI:
         
         # 选项卡6: 日志查看
         self.create_log_tab()
+        
+        # 初始化节点列表
+        try:
+            self.refresh_node_list()
+        except:
+            pass  # 如果初始化失败也不影响启动
         
     def create_updates_tab(self):
         """创建更新说明选项卡"""
@@ -519,13 +526,44 @@ class GaiaNetGUI:
         advanced_frame = ttk.LabelFrame(mgmt_frame, text="高级操作", padding=10)
         advanced_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        btn_frame3 = ttk.Frame(advanced_frame)
-        btn_frame3.pack(fill=tk.X, pady=5)
+        btn_frame4 = ttk.Frame(advanced_frame)
+        btn_frame4.pack(fill=tk.X, pady=5)
         
-        ttk.Button(btn_frame3, text="🔧 修复Device ID", 
+        ttk.Button(btn_frame4, text="🔧 修复Device ID", 
                   command=self.fix_device_id, width=20).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame3, text="✅ 验证节点身份", 
+        ttk.Button(btn_frame4, text="✅ 验证节点身份", 
                   command=self.verify_nodes, width=20).pack(side=tk.LEFT, padx=5)
+        
+        # 单节点管理
+        single_node_frame = ttk.LabelFrame(mgmt_frame, text="单节点管理", padding=10)
+        single_node_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # 节点选择行
+        node_select_frame = ttk.Frame(single_node_frame)
+        node_select_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(node_select_frame, text="选择节点:").pack(side=tk.LEFT, padx=5)
+        
+        self.selected_node_var = tk.StringVar()
+        self.node_combobox = ttk.Combobox(node_select_frame, textvariable=self.selected_node_var, 
+                                         width=25, state="readonly")
+        self.node_combobox.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(node_select_frame, text="🔄 刷新节点列表", 
+                  command=self.refresh_node_list, width=15).pack(side=tk.LEFT, padx=5)
+        
+        # 单节点操作按钮行
+        single_ops_frame = ttk.Frame(single_node_frame)
+        single_ops_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Button(single_ops_frame, text="🚀 启动选中节点", 
+                  command=self.start_single_node, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(single_ops_frame, text="🛑 停止选中节点", 
+                  command=self.stop_single_node, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(single_ops_frame, text="🔄 重启选中节点", 
+                  command=self.restart_single_node, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(single_ops_frame, text="📊 查看节点状态", 
+                  command=self.show_single_node_status, width=15).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame3, text="🌐 打开节点URL", 
                   command=self.open_node_urls, width=20).pack(side=tk.LEFT, padx=5)
         
@@ -1016,35 +1054,41 @@ class GaiaNetGUI:
             for path in possible_paths:
                 if os.path.exists(path):
                     try:
-                        # 尝试运行 gaianet info 命令
-                        result = subprocess.run(
-                            ["./bin/gaianet", "info"], 
-                            cwd=path,
-                            capture_output=True, 
-                            text=True, 
-                            timeout=10
-                        )
+                        # 直接读取节点身份文件（更可靠的方法）
+                        nodeid_file = os.path.join(path, "nodeid.json")
+                        deviceid_file = os.path.join(path, "deviceid.txt")
                         
-                        if result.returncode == 0:
-                            # 解析输出获取节点ID和设备ID
-                            lines = result.stdout.split('\n')
-                            node_id = None
-                            device_id = None
+                        node_id = None
+                        device_id = None
+                        
+                        # 读取 nodeid.json 获取节点地址
+                        if os.path.exists(nodeid_file):
+                            try:
+                                with open(nodeid_file, 'r', encoding='utf-8') as f:
+                                    content = f.read()
+                                    # 使用正则表达式提取地址
+                                    match = re.search(r'"address":\s*"([^"]*)"', content)
+                                    if match:
+                                        node_id = match.group(1)
+                            except Exception as e:
+                                print(f"读取nodeid.json失败: {e}")
+                                continue
+                        
+                        # 读取 deviceid.txt 获取设备ID
+                        if os.path.exists(deviceid_file):
+                            try:
+                                with open(deviceid_file, 'r', encoding='utf-8') as f:
+                                    device_id = f.read().strip()
+                            except Exception as e:
+                                print(f"读取deviceid.txt失败: {e}")
+                                continue
+                        
+                        # 如果两个ID都获取到了，返回结果
+                        if node_id and device_id:
+                            return (node_id, device_id)
                             
-                            for line in lines:
-                                line_lower = line.lower()
-                                if 'node id' in line_lower:
-                                    parts = line.split(':')
-                                    if len(parts) > 1:
-                                        node_id = parts[1].strip()
-                                elif 'device id' in line_lower:
-                                    parts = line.split(':')
-                                    if len(parts) > 1:
-                                        device_id = parts[1].strip()
-                            
-                            if node_id and device_id:
-                                return (node_id, device_id)
-                    except:
+                    except Exception as e:
+                        print(f"处理节点目录 {path} 失败: {e}")
                         continue
             
             return None
@@ -3173,6 +3217,253 @@ curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/
         """更新状态"""
         self.status_var.set(message)
         self.root.update_idletasks()
+
+    # 单节点管理方法
+    def refresh_node_list(self):
+        """刷新节点列表"""
+        try:
+            # 获取所有可能的节点目录
+            node_dirs = []
+            
+            # 扫描常见的节点目录位置
+            possible_base_paths = [
+                os.path.expanduser("~/"),
+                "/opt/",
+                "./"
+            ]
+            
+            for base_path in possible_base_paths:
+                if os.path.exists(base_path):
+                    try:
+                        for item in os.listdir(base_path):
+                            item_path = os.path.join(base_path, item)
+                            if os.path.isdir(item_path):
+                                # 检查是否是GaiaNet节点目录
+                                if (item.startswith("gaianet") and 
+                                    (os.path.exists(os.path.join(item_path, "config.json")) or
+                                     os.path.exists(os.path.join(item_path, "nodeid.json")))):
+                                    display_name = f"{item} ({item_path})"
+                                    node_dirs.append(display_name)
+                    except PermissionError:
+                        continue
+            
+            # 更新下拉列表
+            self.node_combobox['values'] = sorted(node_dirs)
+            if node_dirs:
+                self.node_combobox.set(node_dirs[0])
+                self.append_mgmt_log(f"✅ 找到 {len(node_dirs)} 个节点目录")
+            else:
+                self.node_combobox.set("")
+                self.append_mgmt_log("⚠️ 未找到任何节点目录")
+                
+        except Exception as e:
+            self.append_mgmt_log(f"❌ 刷新节点列表失败: {str(e)}")
+
+    def get_selected_node_path(self):
+        """获取选中节点的路径"""
+        selected = self.selected_node_var.get()
+        if not selected:
+            return None
+        
+        # 从显示名称中提取路径 (格式: "node_name (path)")
+        match = re.search(r'\(([^)]+)\)$', selected)
+        if match:
+            return match.group(1)
+        return None
+
+    def start_single_node(self):
+        """启动选中的单个节点"""
+        if self.is_running:
+            messagebox.showwarning("警告", "有操作正在进行中，请稍候...")
+            return
+            
+        node_path = self.get_selected_node_path()
+        if not node_path:
+            messagebox.showwarning("警告", "请先选择要启动的节点")
+            return
+            
+        self.run_async_operation(f"启动节点中...", self._start_single_node, node_path)
+
+    def stop_single_node(self):
+        """停止选中的单个节点"""
+        if self.is_running:
+            messagebox.showwarning("警告", "有操作正在进行中，请稍候...")
+            return
+            
+        node_path = self.get_selected_node_path()
+        if not node_path:
+            messagebox.showwarning("警告", "请先选择要停止的节点")
+            return
+            
+        self.run_async_operation(f"停止节点中...", self._stop_single_node, node_path)
+
+    def restart_single_node(self):
+        """重启选中的单个节点"""
+        if self.is_running:
+            messagebox.showwarning("警告", "有操作正在进行中，请稍候...")
+            return
+            
+        node_path = self.get_selected_node_path()
+        if not node_path:
+            messagebox.showwarning("警告", "请先选择要重启的节点")
+            return
+            
+        self.run_async_operation(f"重启节点中...", self._restart_single_node, node_path)
+
+    def show_single_node_status(self):
+        """显示选中节点的状态"""
+        node_path = self.get_selected_node_path()
+        if not node_path:
+            messagebox.showwarning("警告", "请先选择要查看的节点")
+            return
+            
+        self.run_async_operation(f"获取节点状态中...", self._show_single_node_status, node_path)
+
+    def _start_single_node(self, node_path):
+        """启动单个节点的后端逻辑"""
+        try:
+            self.append_mgmt_log(f"🚀 启动节点: {node_path}")
+            
+            # 使用gaianet_proxy.sh启动节点
+            proxy_script = self.get_script_path("gaianet_proxy.sh")
+            if not proxy_script.exists():
+                self.append_mgmt_log("❌ 找不到gaianet_proxy.sh脚本")
+                return
+            
+            # 构建启动命令
+            cmd = [str(proxy_script), "start", "--base", node_path]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            
+            if result.returncode == 0:
+                self.append_mgmt_log(f"✅ 节点启动成功")
+                self.append_mgmt_log(result.stdout)
+            else:
+                self.append_mgmt_log(f"❌ 节点启动失败")
+                self.append_mgmt_log(result.stderr)
+                
+        except Exception as e:
+            self.append_mgmt_log(f"❌ 启动节点异常: {str(e)}")
+
+    def _stop_single_node(self, node_path):
+        """停止单个节点的后端逻辑"""
+        try:
+            self.append_mgmt_log(f"🛑 停止节点: {node_path}")
+            
+            # 使用gaianet_proxy.sh停止节点
+            proxy_script = self.get_script_path("gaianet_proxy.sh")
+            if not proxy_script.exists():
+                self.append_mgmt_log("❌ 找不到gaianet_proxy.sh脚本")
+                return
+            
+            # 构建停止命令
+            cmd = [str(proxy_script), "stop", "--base", node_path]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                self.append_mgmt_log(f"✅ 节点停止成功")
+                self.append_mgmt_log(result.stdout)
+            else:
+                self.append_mgmt_log(f"❌ 节点停止失败")
+                self.append_mgmt_log(result.stderr)
+                
+        except Exception as e:
+            self.append_mgmt_log(f"❌ 停止节点异常: {str(e)}")
+
+    def _restart_single_node(self, node_path):
+        """重启单个节点的后端逻辑"""
+        try:
+            self.append_mgmt_log(f"🔄 重启节点: {node_path}")
+            
+            # 先停止
+            self._stop_single_node(node_path)
+            time.sleep(3)  # 等待3秒
+            
+            # 再启动
+            self._start_single_node(node_path)
+            
+        except Exception as e:
+            self.append_mgmt_log(f"❌ 重启节点异常: {str(e)}")
+
+    def _show_single_node_status(self, node_path):
+        """显示单个节点状态的后端逻辑"""
+        try:
+            self.append_mgmt_log(f"📊 检查节点状态: {node_path}")
+            
+            # 检查基本文件
+            config_file = os.path.join(node_path, "config.json")
+            nodeid_file = os.path.join(node_path, "nodeid.json")
+            deviceid_file = os.path.join(node_path, "deviceid.txt")
+            pid_file = os.path.join(node_path, "llama_nexus.pid")
+            
+            status_info = []
+            status_info.append(f"📁 节点路径: {node_path}")
+            
+            # 检查配置文件
+            if os.path.exists(config_file):
+                status_info.append("✅ config.json 存在")
+                try:
+                    with open(config_file, 'r') as f:
+                        config = json.load(f)
+                        port = config.get('llamaedge_port', '未知')
+                        status_info.append(f"🔌 配置端口: {port}")
+                except:
+                    status_info.append("⚠️ config.json 读取失败")
+            else:
+                status_info.append("❌ config.json 不存在")
+            
+            # 检查节点身份
+            if os.path.exists(nodeid_file):
+                status_info.append("✅ nodeid.json 存在")
+                try:
+                    with open(nodeid_file, 'r') as f:
+                        content = f.read()
+                        match = re.search(r'"address":\s*"([^"]*)"', content)
+                        if match:
+                            address = match.group(1)[:10] + "..."
+                            status_info.append(f"🆔 节点地址: {address}")
+                except:
+                    status_info.append("⚠️ nodeid.json 读取失败")
+            else:
+                status_info.append("❌ nodeid.json 不存在")
+            
+            # 检查设备ID
+            if os.path.exists(deviceid_file):
+                status_info.append("✅ deviceid.txt 存在")
+                try:
+                    with open(deviceid_file, 'r') as f:
+                        device_id = f.read().strip()
+                        status_info.append(f"📱 设备ID: {device_id}")
+                except:
+                    status_info.append("⚠️ deviceid.txt 读取失败")
+            else:
+                status_info.append("❌ deviceid.txt 不存在")
+            
+            # 检查进程状态
+            if os.path.exists(pid_file):
+                try:
+                    with open(pid_file, 'r') as f:
+                        pid = int(f.read().strip())
+                    
+                    # 检查进程是否存在
+                    try:
+                        os.kill(pid, 0)  # 发送0信号检查进程是否存在
+                        status_info.append(f"🟢 进程运行中 (PID: {pid})")
+                    except OSError:
+                        status_info.append(f"🔴 进程不存在 (PID: {pid})")
+                        
+                except:
+                    status_info.append("⚠️ PID文件读取失败")
+            else:
+                status_info.append("🔴 未运行 (无PID文件)")
+            
+            # 输出状态信息
+            for info in status_info:
+                self.append_mgmt_log(info)
+                
+        except Exception as e:
+            self.append_mgmt_log(f"❌ 获取节点状态异常: {str(e)}")
 
 def main():
     """主函数"""
