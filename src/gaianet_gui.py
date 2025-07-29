@@ -1043,11 +1043,24 @@ class GaiaNetGUI:
     def get_node_info_by_name(self, node_name):
         """根据节点名称获取节点信息"""
         try:
-            # 可能的节点路径
+            # 可能的节点路径 - 支持多种命名格式
             possible_paths = [
+                # 标准格式: gaianet_node1, gaianet_node2 等
                 os.path.expanduser(f"~/gaianet_{node_name}"),
+                # 带下划线格式: gaianet_node_1, gaianet_node_2 等  
+                os.path.expanduser(f"~/gaianet_{node_name.replace('_', '')}"),
+                # 如果输入是node_1格式，尝试转换为node1然后查找gaianet_node1
+                os.path.expanduser(f"~/gaianet_{node_name.replace('node_', 'node')}"),
+                # 直接使用原始名称
                 os.path.expanduser(f"~/{node_name}"),
+                # opt目录的对应格式
                 f"/opt/gaianet_{node_name}",
+                f"/opt/gaianet_{node_name.replace('_', '')}",  
+                f"/opt/gaianet_{node_name.replace('node_', 'node')}",
+                # 当前目录的对应格式
+                f"./gaianet_{node_name}",
+                f"./gaianet_{node_name.replace('_', '')}",
+                f"./gaianet_{node_name.replace('node_', 'node')}",
                 f"./{node_name}"
             ]
             
