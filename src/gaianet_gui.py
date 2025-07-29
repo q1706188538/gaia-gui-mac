@@ -652,9 +652,17 @@ class GaiaNetGUI:
         wallet_frame = ttk.Frame(self.notebook)
         self.notebook.add(wallet_frame, text="💳 钱包管理")
         
-        # 主滚动框架
-        main_canvas = tk.Canvas(wallet_frame)
-        scrollbar_main = ttk.Scrollbar(wallet_frame, orient="vertical", command=main_canvas.yview)
+        # 创建左右分栏布局
+        left_right_paned = ttk.PanedWindow(wallet_frame, orient=tk.HORIZONTAL)
+        left_right_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 左侧操作区域（带滚动）
+        left_frame = ttk.Frame(left_right_paned)
+        left_right_paned.add(left_frame, weight=2)  # 左侧占2/3
+        
+        # 左侧滚动框架
+        main_canvas = tk.Canvas(left_frame)
+        scrollbar_main = ttk.Scrollbar(left_frame, orient="vertical", command=main_canvas.yview)
         scrollable_main = ttk.Frame(main_canvas)
         
         scrollable_main.bind(
@@ -667,6 +675,38 @@ class GaiaNetGUI:
         
         main_canvas.pack(side="left", fill="both", expand=True)
         scrollbar_main.pack(side="right", fill="y")
+        
+        # 右侧日志区域
+        right_frame = ttk.Frame(left_right_paned)
+        left_right_paned.add(right_frame, weight=1)  # 右侧占1/3
+        
+        # 钱包操作日志
+        log_label_frame = ttk.LabelFrame(right_frame, text="📋 钱包操作日志", padding=10)
+        log_label_frame.pack(fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        # 日志显示区域
+        self.wallet_log_text = scrolledtext.ScrolledText(
+            log_label_frame, 
+            height=25, 
+            width=40,
+            wrap=tk.WORD,
+            font=('Consolas', 10) if sys.platform == 'win32' else ('Monaco', 10)
+        )
+        self.wallet_log_text.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # 日志操作按钮
+        log_button_frame = ttk.Frame(log_label_frame)
+        log_button_frame.pack(fill=tk.X)
+        
+        ttk.Button(log_button_frame, text="清空日志", 
+                  command=self.clear_wallet_log, width=10).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(log_button_frame, text="保存日志", 
+                  command=self.save_wallet_log, width=10).pack(side=tk.LEFT)
+        
+        # 初始化日志
+        self.append_wallet_log("💳 钱包管理系统已启动")
+        self.append_wallet_log("📋 操作日志将在此显示")
+        self.append_wallet_log("=" * 40)
         
         # 钱包连接区域
         connect_frame = ttk.LabelFrame(scrollable_main, text="🔗 钱包连接", padding=15)
@@ -875,6 +915,7 @@ class GaiaNetGUI:
     def generate_wallet(self):
         """生成新钱包"""
         try:
+            self.append_wallet_log("🔄 开始生成新钱包...")
             # 生成随机私钥
             private_key = secrets.token_hex(32)
             private_key_hex = '0x' + private_key
@@ -894,13 +935,51 @@ class GaiaNetGUI:
 • 私钥一旦丢失将无法恢复
 • 不要与任何人分享您的私钥
 
-是否要使用这个新钱包？""")
+是否要使用这个新钱包？
+(选择'是'将自动保存钱包配置到桌面)""")
             
             if result:
+                # 填入私钥
                 self.private_key_var.set(private_key_hex)
-                messagebox.showinfo("成功", "新钱包私钥已自动填入，请点击'连接钱包'完成连接。")
+                
+                # 更新钱包地址显示
+                self.wallet_address_var.set(test_account.address)
+                
+                self.append_wallet_log(f"✅ 新钱包已生成: {test_account.address}")
+                
+                # 自动保存钱包配置
+                try:
+                    wallet_config = {
+                        'private_key': private_key_hex,
+                        'address': test_account.address,
+                        'generated_time': time.time(),
+                        'auto_generated': True
+                    }
+                    
+                    with open(self.wallet_config_file, 'w', encoding='utf-8') as f:
+                        json.dump(wallet_config, f, indent=2, ensure_ascii=False)
+                    
+                    # 更新状态
+                    self.wallet_status_var.set("✅ 新钱包已生成并自动保存，点击'连接钱包'完成连接")
+                    
+                    self.append_wallet_log("💾 钱包配置已自动保存到桌面")
+                    
+                    messagebox.showinfo("成功", 
+                        f"""新钱包配置已自动保存！
+
+💾 保存位置: {self.wallet_config_file}
+🔗 下一步: 点击'连接钱包'按钮完成连接
+📋 建议: 额外备份私钥到其他安全位置""")
+                    
+                except Exception as save_error:
+                    # 即使保存失败，也不影响钱包生成
+                    self.append_wallet_log(f"⚠️ 钱包保存失败: {str(save_error)}")
+                    messagebox.showwarning("保存警告", 
+                        f"钱包生成成功，但自动保存失败: {str(save_error)}\n\n"
+                        f"私钥已填入，请手动点击'保存钱包'按钮保存配置。")
                 
         except Exception as e:
+            self.append_wallet_log(f"❌ 钱包生成失败: {str(e)}")
             messagebox.showerror("生成失败", f"生成钱包时发生错误: {str(e)}")
 
     def save_wallet(self):
@@ -962,10 +1041,12 @@ class GaiaNetGUI:
     def fetch_domain_list(self):
         """获取域列表"""
         if not self.access_token:
+            self.append_wallet_log("❌ 获取域列表失败: 请先连接钱包")
             messagebox.showwarning("未连接", "请先连接钱包")
             return
             
         try:
+            self.append_wallet_log("🔍 开始获取域列表...")
             self.domain_status_var.set("📡 正在获取域列表...")
             
             url = "https://api.gaianet.ai/api/v1/network/domains/all/?page=1&page_size=9999"
@@ -975,22 +1056,38 @@ class GaiaNetGUI:
                 "User-Agent": "GaiaNet-GUI/1.3"
             }
             
+            self.append_wallet_log("📋 请求详情:")
+            self.append_wallet_log(f"   请求URL: {url}")
+            self.append_wallet_log(f"   请求头: {dict(headers)}")
+            
             response = requests.get(url, headers=headers, timeout=30)
+            
+            self.append_wallet_log("📡 响应详情:")
+            self.append_wallet_log(f"   状态码: {response.status_code}")
+            self.append_wallet_log(f"   响应头: {dict(response.headers)}")
+            self.append_wallet_log(f"   响应体: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 if data.get('code') == 0:
                     domains = data.get('data', {}).get('data', [])
                     
+                    self.append_wallet_log(f"✅ 成功获取域列表，共 {len(domains)} 个域")
+                    
                     # 创建域选择对话框
                     self.show_domain_selection_dialog(domains)
                     self.domain_status_var.set(f"✅ 找到 {len(domains)} 个可用域")
                 else:
-                    self.domain_status_var.set(f"❌ 获取域列表失败: {data.get('msg', '未知错误')}")
+                    error_msg = data.get('msg', '未知错误')
+                    self.append_wallet_log(f"❌ 服务器返回错误: {error_msg}")
+                    self.domain_status_var.set(f"❌ 获取域列表失败: {error_msg}")
             else:
-                self.domain_status_var.set(f"❌ 请求失败: HTTP {response.status_code}")
+                error_msg = f"HTTP {response.status_code}"
+                self.append_wallet_log(f"❌ 请求失败: {error_msg}")
+                self.domain_status_var.set(f"❌ 请求失败: {error_msg}")
                 
         except Exception as e:
+            self.append_wallet_log(f"❌ 获取域列表异常: {str(e)}")
             self.domain_status_var.set(f"❌ 获取域列表异常: {str(e)}")
             messagebox.showerror("获取失败", f"获取域列表时发生错误: {str(e)}")
     
@@ -1054,10 +1151,12 @@ class GaiaNetGUI:
     def get_bound_nodes(self):
         """获取已绑定的节点列表"""
         if not self.access_token:
+            self.append_wallet_log("❌ 获取已绑定节点失败: 请先连接钱包")
             messagebox.showwarning("未连接", "请先连接钱包")
             return
             
         try:
+            self.append_wallet_log("🔍 开始获取已绑定节点列表...")
             self.domain_status_var.set("📋 正在获取已绑定节点...")
             
             url = "https://api.gaianet.ai/api/v1/users/bind-nodes/"
@@ -1067,12 +1166,23 @@ class GaiaNetGUI:
                 "User-Agent": "GaiaNet-GUI/1.3"
             }
             
+            self.append_wallet_log("📋 请求详情:")
+            self.append_wallet_log(f"   请求URL: {url}")
+            self.append_wallet_log(f"   请求头: {dict(headers)}")
+            
             response = requests.get(url, headers=headers, timeout=30)
+            
+            self.append_wallet_log("📡 响应详情:")
+            self.append_wallet_log(f"   状态码: {response.status_code}")
+            self.append_wallet_log(f"   响应头: {dict(response.headers)}")
+            self.append_wallet_log(f"   响应体: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 if data.get('code') == 0:
                     nodes = data.get('data', [])
+                    
+                    self.append_wallet_log(f"✅ 成功获取已绑定节点，共 {len(nodes)} 个节点")
                     
                     # 更新已绑定节点显示
                     self.bound_nodes_text.delete(1.0, tk.END)
@@ -1091,45 +1201,62 @@ class GaiaNetGUI:
                         self.domain_status_var.set(f"✅ 找到 {len(nodes)} 个已绑定节点")
                     else:
                         self.bound_nodes_text.insert(tk.END, "暂无已绑定节点")
+                        self.append_wallet_log("⚠️ 暂无已绑定节点")
                         self.domain_status_var.set("⚠️ 暂无已绑定节点")
                 else:
-                    self.domain_status_var.set(f"❌ 获取节点失败: {data.get('msg', '未知错误')}")
+                    error_msg = data.get('msg', '未知错误')
+                    self.append_wallet_log(f"❌ 服务器返回错误: {error_msg}")
+                    self.domain_status_var.set(f"❌ 获取节点失败: {error_msg}")
             else:
-                self.domain_status_var.set(f"❌ 请求失败: HTTP {response.status_code}")
+                error_msg = f"HTTP {response.status_code}"
+                self.append_wallet_log(f"❌ 请求失败: {error_msg}")
+                self.domain_status_var.set(f"❌ 请求失败: {error_msg}")
                 
         except Exception as e:
+            self.append_wallet_log(f"❌ 获取已绑定节点异常: {str(e)}")
             self.domain_status_var.set(f"❌ 获取节点异常: {str(e)}")
             messagebox.showerror("获取失败", f"获取已绑定节点时发生错误: {str(e)}")
     
     def single_join_domain(self):
         """单个节点加入域"""
         if not self.access_token:
+            self.append_wallet_log("❌ 单个节点加入域失败: 请先连接钱包")
             messagebox.showwarning("未连接", "请先连接钱包")
             return
             
         domain_id = self.domain_var.get().strip()
         if not domain_id:
+            self.append_wallet_log("❌ 单个节点加入域失败: 请输入或选择域ID")
             messagebox.showwarning("域ID为空", "请输入或选择域ID")
             return
             
         # 弹出对话框让用户输入节点ID
         node_id = tk.simpledialog.askstring("节点ID", "请输入要加入域的节点ID:")
         if not node_id:
+            self.append_wallet_log("⚠️ 用户取消了单个节点加入域操作")
             return
             
         if not node_id.startswith("0x"):
             node_id = "0x" + node_id
+        
+        self.append_wallet_log("=" * 50)
+        self.append_wallet_log(f"🌐 开始单个节点加入域操作")
+        self.append_wallet_log(f"📋 节点ID: {node_id}")
+        self.append_wallet_log(f"📋 域ID: {domain_id}")
+        self.append_wallet_log("=" * 50)
             
         self.join_node_to_domain(node_id, domain_id)
     
     def batch_join_domain(self):
         """批量节点加入域"""
         if not self.access_token:
+            self.append_wallet_log("❌ 批量加入域失败: 请先连接钱包")
             messagebox.showwarning("未连接", "请先连接钱包")
             return
             
         domain_id = self.domain_var.get().strip()
         if not domain_id:
+            self.append_wallet_log("❌ 批量加入域失败: 请输入或选择域ID")  
             messagebox.showwarning("域ID为空", "请输入或选择域ID")
             return
             
@@ -1141,6 +1268,11 @@ class GaiaNetGUI:
             return
             
         try:
+            self.append_wallet_log("=" * 50)
+            self.append_wallet_log(f"🌐 开始批量加入域操作")
+            self.append_wallet_log(f"📋 目标域ID: {domain_id}")
+            self.append_wallet_log("=" * 50)
+            
             self.domain_status_var.set("🔄 正在批量加入域...")
             
             # 先获取已绑定节点
@@ -1151,7 +1283,15 @@ class GaiaNetGUI:
                 "User-Agent": "GaiaNet-GUI/1.3"
             }
             
+            self.append_wallet_log(f"🔍 获取已绑定节点列表...")
+            self.append_wallet_log(f"   请求URL: {url}")
+            self.append_wallet_log(f"   请求头: {dict(headers)}")
+            
             response = requests.get(url, headers=headers, timeout=30)
+            
+            self.append_wallet_log(f"📡 获取节点列表响应:")
+            self.append_wallet_log(f"   状态码: {response.status_code}")
+            self.append_wallet_log(f"   响应体: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
@@ -1159,23 +1299,42 @@ class GaiaNetGUI:
                     nodes = data.get('data', [])
                     
                     if not nodes:
+                        self.append_wallet_log("⚠️ 没有已绑定的节点")
                         self.domain_status_var.set("⚠️ 没有已绑定的节点")
                         return
+                    
+                    self.append_wallet_log(f"✅ 找到 {len(nodes)} 个已绑定节点")
                     
                     # 批量加入域
                     success_count = 0
                     failed_nodes = []
                     
-                    for node in nodes:
+                    for i, node in enumerate(nodes, 1):
                         node_id = node.get('node_id')
                         if node_id:
+                            self.append_wallet_log(f"🔄 处理节点 {i}/{len(nodes)}: {node_id[:10]}...")
+                            
                             if self.join_node_to_domain(node_id, domain_id, show_message=False):
                                 success_count += 1
+                                self.append_wallet_log(f"✅ 节点 {node_id[:10]}... 加入域成功")
                             else:
                                 failed_nodes.append(node_id[:10] + "...")
+                                self.append_wallet_log(f"❌ 节点 {node_id[:10]}... 加入域失败")
                             time.sleep(1)  # 避免请求过快
                     
                     # 显示结果
+                    self.append_wallet_log("=" * 50)
+                    self.append_wallet_log(f"🎉 批量加入域操作完成")
+                    self.append_wallet_log(f"📊 操作统计:")
+                    self.append_wallet_log(f"   目标域: {domain_id}")
+                    self.append_wallet_log(f"   总节点数: {len(nodes)}")
+                    self.append_wallet_log(f"   成功: {success_count} 个")
+                    self.append_wallet_log(f"   失败: {len(failed_nodes)} 个")
+                    
+                    if failed_nodes:
+                        self.append_wallet_log(f"   失败节点: {', '.join(failed_nodes)}")
+                    self.append_wallet_log("=" * 50)
+                    
                     result_msg = f"批量加入域完成！\n\n"
                     result_msg += f"🌐 目标域: {domain_id}\n"
                     result_msg += f"✅ 成功: {success_count} 个节点\n"
@@ -1188,18 +1347,34 @@ class GaiaNetGUI:
                     messagebox.showinfo("批量加入完成", result_msg)
                     
                 else:
-                    self.domain_status_var.set(f"❌ 获取节点失败: {data.get('msg', '未知错误')}")
+                    error_msg = data.get('msg', '未知错误')
+                    self.append_wallet_log(f"❌ 获取节点列表失败: {error_msg}")
+                    self.domain_status_var.set(f"❌ 获取节点失败: {error_msg}")
             else:
-                self.domain_status_var.set(f"❌ 请求失败: HTTP {response.status_code}")
+                error_msg = f"HTTP {response.status_code}"
+                self.append_wallet_log(f"❌ 请求失败: {error_msg}")
+                self.domain_status_var.set(f"❌ 请求失败: {error_msg}")
                 
         except Exception as e:
+            self.append_wallet_log(f"❌ 批量加入域异常: {str(e)}")
             self.domain_status_var.set(f"❌ 批量加入异常: {str(e)}")
             messagebox.showerror("批量加入失败", f"批量加入域时发生错误: {str(e)}")
     
     def join_node_to_domain(self, node_id, domain_id, show_message=True):
         """加入节点到域的核心方法"""
         try:
-            url = f"https://api.gaianet.ai/api/v1/network/domain/{domain_id}/apply-for-join/"
+            # 记录开始操作
+            if show_message:
+                self.append_wallet_log(f"🌐 开始加入域操作")
+                self.append_wallet_log(f"   节点ID: {node_id[:10]}...")
+                self.append_wallet_log(f"   域ID: {domain_id}")
+            
+            # 尝试两种可能的API路径格式
+            api_paths = [
+                f"https://api.gaianet.ai/api/v1/network/domain/{domain_id}/apply-for-join/",
+                f"https://api.gaianet.ai/api/v1/network/domain/{domain_id}/apply-for-join"
+            ]
+            
             payload = {"node_id": node_id}
             headers = {
                 "Content-Type": "application/json",
@@ -1207,29 +1382,90 @@ class GaiaNetGUI:
                 "User-Agent": "GaiaNet-GUI/1.3"
             }
             
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            # 记录请求信息到日志
+            if show_message:
+                self.append_wallet_log("📋 请求详情:")
+                self.append_wallet_log(f"   请求体: {json.dumps(payload, ensure_ascii=False)}")
+                self.append_wallet_log(f"   请求头: Content-Type: {headers['Content-Type']}")
+                self.append_wallet_log(f"   认证: {self.access_token[:20]}...")
+                self.append_wallet_log(f"   User-Agent: {headers['User-Agent']}")
+            
+            # 尝试第一个路径
+            response = None
+            last_error = None
+            used_url = None
+            
+            for i, url in enumerate(api_paths):
+                try:
+                    if show_message:
+                        self.append_wallet_log(f"🔗 尝试API路径 {i+1}: {url}")
+                    
+                    response = requests.post(url, json=payload, headers=headers, timeout=30)
+                    used_url = url
+                    
+                    if response.status_code != 404:
+                        # 如果不是404错误，就使用这个响应
+                        break
+                    else:
+                        if show_message:
+                            self.append_wallet_log(f"❌ API路径返回404，尝试下一个...")
+                        continue
+                        
+                except Exception as e:
+                    last_error = e
+                    if show_message:
+                        self.append_wallet_log(f"❌ 请求异常: {str(e)}")
+                    continue
+            
+            if response is None:
+                if show_message:
+                    error_msg = f"所有API路径都失败: {last_error}"
+                    self.append_wallet_log(f"❌ 连接失败: {error_msg}")
+                    self.domain_status_var.set(f"❌ 连接失败: {error_msg}")
+                    messagebox.showerror("连接失败", error_msg)
+                return False
+            
+            # 记录响应详情到日志
+            if show_message:
+                self.append_wallet_log("📡 响应详情:")
+                self.append_wallet_log(f"   使用URL: {used_url}")
+                self.append_wallet_log(f"   状态码: {response.status_code}")
+                self.append_wallet_log(f"   响应头: {dict(response.headers)}")
+                self.append_wallet_log(f"   响应体: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 if data.get('code') == 0:
                     if show_message:
+                        self.append_wallet_log(f"✅ 节点加入域成功！")
                         self.domain_status_var.set(f"✅ 节点已加入域 {domain_id}")
                         messagebox.showinfo("加入成功", f"节点 {node_id[:10]}... 已成功加入域 {domain_id}")
                     return True
                 else:
                     error_msg = data.get('msg', '未知错误')
                     if show_message:
+                        self.append_wallet_log(f"❌ 服务器返回错误: {error_msg}")
                         self.domain_status_var.set(f"❌ 加入失败: {error_msg}")
                         messagebox.showerror("加入失败", f"节点加入域失败: {error_msg}")
                     return False
             else:
+                # 详细的错误信息
+                error_details = f"HTTP {response.status_code}"
+                try:
+                    error_data = response.json()
+                    error_details += f": {error_data.get('msg', '未知错误')}"
+                except:
+                    error_details += f": {response.text[:100]}"
+                
                 if show_message:
-                    self.domain_status_var.set(f"❌ 请求失败: HTTP {response.status_code}")
-                    messagebox.showerror("加入失败", f"HTTP请求失败: {response.status_code}")
+                    self.append_wallet_log(f"❌ HTTP错误: {error_details}")
+                    self.domain_status_var.set(f"❌ 请求失败: {error_details}")
+                    messagebox.showerror("加入失败", f"请求失败: {error_details}")
                 return False
                 
         except Exception as e:
             if show_message:
+                self.append_wallet_log(f"❌ 加入域异常: {str(e)}")
                 self.domain_status_var.set(f"❌ 加入异常: {str(e)}")
                 messagebox.showerror("加入失败", f"加入域时发生错误: {str(e)}")
             return False
@@ -1239,6 +1475,7 @@ class GaiaNetGUI:
     def start_batch_bind(self):
         """开始批量绑定"""
         if not self.wallet_account or not self.access_token:
+            self.append_wallet_log("❌ 批量绑定失败: 请先连接钱包并登录")
             messagebox.showerror("错误", "请先连接钱包并登录")
             return
         
@@ -1247,15 +1484,19 @@ class GaiaNetGUI:
             count = int(self.batch_count_var.get() or "20")
             
             if start_node <= 0 or start_node > 100:
+                self.append_wallet_log("❌ 起始节点必须在1-100之间")
                 messagebox.showerror("错误", "起始节点必须在1-100之间")
                 return
             if count <= 0 or count > 100:
+                self.append_wallet_log("❌ 绑定数量必须在1-100之间")
                 messagebox.showerror("错误", "绑定数量必须在1-100之间")
                 return
             if start_node + count - 1 > 100:
+                self.append_wallet_log("❌ 绑定范围超出限制，最大支持到node_100")
                 messagebox.showerror("错误", "绑定范围超出限制，最大支持到node_100")
                 return
         except ValueError:
+            self.append_wallet_log("❌ 请输入有效的数字")
             messagebox.showerror("错误", "请输入有效的数字")
             return
         
@@ -1272,6 +1513,12 @@ class GaiaNetGUI:
 确定开始批量绑定吗？""")
         
         if result:
+            self.append_wallet_log("=" * 50)
+            self.append_wallet_log(f"🚀 开始批量绑定操作")
+            self.append_wallet_log(f"📋 绑定范围: node_{start_node} ~ node_{end_node}")
+            self.append_wallet_log(f"📊 总计节点: {count} 个")
+            self.append_wallet_log("=" * 50)
+            
             self.batch_bind_running = True
             self.batch_bind_button.config(state=tk.DISABLED)
             self.stop_batch_button.config(state=tk.NORMAL)
@@ -1310,17 +1557,25 @@ class GaiaNetGUI:
                 node_info = self.get_node_info_by_name(node_name)
                 if node_info:
                     node_id, device_id = node_info
+                    self.root.after(0, lambda name=node_name, nid=node_id[:10], did=device_id: 
+                                   self.append_wallet_log(f"🔍 找到节点 {name}: NodeID={nid}..., DeviceID={did}"))
                     
                     # 尝试绑定
                     if self.bind_single_node(node_id, device_id, node_name):
                         success_count += 1
                         self.batch_progress_var.set(f"✅ {node_name} 绑定成功 ({success_count}/{i+1})")
+                        self.root.after(0, lambda name=node_name: 
+                                       self.append_wallet_log(f"✅ 节点 {name} 绑定成功"))
                     else:
                         failed_nodes.append(node_name)
                         self.batch_progress_var.set(f"❌ {node_name} 绑定失败 ({success_count}/{i+1})")
+                        self.root.after(0, lambda name=node_name: 
+                                       self.append_wallet_log(f"❌ 节点 {name} 绑定失败"))
                 else:
                     failed_nodes.append(f"{node_name} (未找到)")
                     self.batch_progress_var.set(f"⚠️ {node_name} 未找到 ({success_count}/{i+1})")
+                    self.root.after(0, lambda name=node_name: 
+                                   self.append_wallet_log(f"⚠️ 节点 {name} 未找到或无法访问"))
                 
                 # 防止请求过快
                 time.sleep(2)
@@ -1331,6 +1586,16 @@ class GaiaNetGUI:
             if self.batch_bind_running:
                 end_node = start_node + count - 1
                 self.batch_progress_var.set(f"✅ 批量绑定完成！范围: node_{start_node}-{end_node}, 成功: {success_count}")
+                
+                # 记录最终结果到钱包日志
+                self.root.after(0, lambda: self.append_wallet_log("=" * 50))
+                self.root.after(0, lambda: self.append_wallet_log("🎉 批量绑定操作完成"))
+                self.root.after(0, lambda: self.append_wallet_log(f"📊 绑定统计: 成功 {success_count}/{count}, 失败 {len(failed_nodes)}"))
+                
+                if failed_nodes:
+                    self.root.after(0, lambda: self.append_wallet_log(f"❌ 失败节点: {', '.join(failed_nodes)}"))
+                
+                self.root.after(0, lambda: self.append_wallet_log("=" * 50))
                 
                 # 显示结果
                 result_msg = f"批量绑定完成！\n\n🔍 绑定范围: node_{start_node} 到 node_{end_node}\n✅ 成功绑定: {success_count} 个节点"
@@ -1343,6 +1608,7 @@ class GaiaNetGUI:
                 self.query_bound_nodes()
             else:
                 self.batch_progress_var.set("❌ 批量绑定已停止")
+                self.root.after(0, lambda: self.append_wallet_log("⚠️ 批量绑定操作被用户停止"))
             
         except Exception as e:
             self.batch_progress_var.set(f"❌ 批量绑定出错: {str(e)}")
@@ -1470,10 +1736,13 @@ class GaiaNetGUI:
         """连接钱包"""
         private_key = self.private_key_var.get().strip()
         if not private_key:
+            self.append_wallet_log("❌ 连接失败: 请输入钱包私钥")
             messagebox.showerror("错误", "请输入钱包私钥")
             return
         
         try:
+            self.append_wallet_log("🔄 开始连接钱包...")
+            
             # 验证私钥格式
             if not private_key.startswith('0x'):
                 private_key = '0x' + private_key
@@ -1482,26 +1751,35 @@ class GaiaNetGUI:
             self.wallet_account = Account.from_key(private_key)
             wallet_address = self.wallet_account.address
             
+            self.append_wallet_log(f"✅ 钱包连接成功: {wallet_address}")
+            
             # 更新界面
             self.wallet_address_var.set(wallet_address)
             self.wallet_status_var.set("钱包已连接，正在登录到Gaia服务器...")
             self.root.update()
+            
+            self.append_wallet_log("🔄 正在登录到Gaia服务器...")
             
             # 登录到Gaia服务器
             success = self.login_to_gaia_server()
             if success:
                 self.wallet_status_var.set("✅ 已连接并登录成功")
                 self.user_info_frame.pack(fill=tk.X, padx=20, pady=10)
+                self.append_wallet_log("✅ Gaia服务器登录成功")
                 messagebox.showinfo("成功", "钱包连接并登录成功！")
             else:
                 self.wallet_status_var.set("❌ 钱包已连接，但登录失败")
+                self.append_wallet_log("❌ Gaia服务器登录失败")
                 
         except Exception as e:
+            self.append_wallet_log(f"❌ 钱包连接失败: {str(e)}")
             messagebox.showerror("错误", f"连接钱包失败: {str(e)}")
             self.wallet_status_var.set("❌ 连接失败")
 
     def disconnect_wallet(self):
         """断开钱包连接"""
+        self.append_wallet_log("🔄 正在断开钱包连接...")
+        
         self.wallet_account = None
         self.access_token = None
         self.api_key = None
@@ -1515,6 +1793,7 @@ class GaiaNetGUI:
         self.user_info_text.delete(1.0, tk.END)
         self.bound_nodes_text.delete(1.0, tk.END)
         
+        self.append_wallet_log("✅ 钱包已断开连接")
         messagebox.showinfo("成功", "钱包已断开连接")
 
     def login_to_gaia_server(self):
@@ -1586,6 +1865,7 @@ API Key: {self.api_key}
     def bind_node(self):
         """绑定节点"""
         if not self.wallet_account or not self.access_token:
+            self.append_wallet_log("❌ 绑定失败: 请先连接钱包并登录")
             messagebox.showerror("错误", "请先连接钱包并登录")
             return
         
@@ -1593,10 +1873,15 @@ API Key: {self.api_key}
         device_id = self.device_id_var.get().strip()
         
         if not node_id or not device_id:
+            self.append_wallet_log("❌ 绑定失败: 请输入节点ID和设备ID")
             messagebox.showerror("错误", "请输入节点ID和设备ID")
             return
         
         try:
+            self.append_wallet_log(f"🔄 开始绑定节点...")
+            self.append_wallet_log(f"   节点ID: {node_id[:10]}...")
+            self.append_wallet_log(f"   设备ID: {device_id}")
+            
             # 创建签名消息
             message_data = {
                 "node_id": node_id,
@@ -1627,21 +1912,27 @@ API Key: {self.api_key}
             if response.status_code == 200:
                 data = response.json()
                 if data.get("code") == 0:
+                    self.append_wallet_log("✅ 节点绑定成功！")
                     messagebox.showinfo("成功", "节点绑定成功！")
                     # 自动查询已绑定节点
                     self.query_bound_nodes()
                 else:
-                    messagebox.showerror("绑定失败", f"服务器返回错误: {data.get('msg', '未知错误')}")
+                    error_msg = data.get('msg', '未知错误')
+                    self.append_wallet_log(f"❌ 绑定失败: {error_msg}")
+                    messagebox.showerror("绑定失败", f"服务器返回错误: {error_msg}")
             else:
                 try:
                     data = response.json()
                     error_msg = data.get('msg', f'HTTP错误: {response.status_code}')
+                    self.append_wallet_log(f"❌ 绑定失败: {error_msg}")
                     messagebox.showerror("绑定失败", error_msg)
                 except:
                     error_msg = f'HTTP错误: {response.status_code}'
+                    self.append_wallet_log(f"❌ 绑定失败: {error_msg}")
                     messagebox.showerror("绑定失败", error_msg)
                 
         except Exception as e:
+            self.append_wallet_log(f"❌ 绑定异常: {str(e)}")
             messagebox.showerror("绑定失败", f"绑定过程中发生错误: {str(e)}")
 
     def get_local_node_info(self):
@@ -3793,6 +4084,57 @@ curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/
                 
         except Exception as e:
             self.append_mgmt_log(f"❌ 获取节点状态异常: {str(e)}")
+
+    # ========== 钱包日志管理方法 ==========
+    
+    def append_wallet_log(self, message):
+        """添加消息到钱包日志"""
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}\n"
+        
+        self.wallet_log_text.insert(tk.END, formatted_message)
+        
+        # 自动滚动到底部
+        self.wallet_log_text.see(tk.END)
+        
+        # 限制日志长度，保留最近500行
+        lines = self.wallet_log_text.get(1.0, tk.END).split('\n')
+        if len(lines) > 500:
+            self.wallet_log_text.delete(1.0, f"{len(lines)-500}.0")
+        
+        self.wallet_log_text.update_idletasks()
+    
+    def clear_wallet_log(self):
+        """清空钱包日志"""
+        self.wallet_log_text.delete(1.0, tk.END)
+        self.append_wallet_log("📋 钱包日志已清空")
+    
+    def save_wallet_log(self):
+        """保存钱包日志"""
+        content = self.wallet_log_text.get(1.0, tk.END)
+        if not content.strip():
+            messagebox.showwarning("警告", "日志为空，无需保存")
+            return
+            
+        from datetime import datetime
+        filename = f"wallet_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        file_path = filedialog.asksaveasfilename(
+            title="保存钱包日志",
+            defaultextension=".txt",
+            initialname=filename,
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                messagebox.showinfo("成功", f"钱包日志已保存到: {file_path}")
+                self.append_wallet_log(f"💾 日志已保存到: {file_path}")
+            except Exception as e:
+                messagebox.showerror("错误", f"保存失败: {str(e)}")
+                self.append_wallet_log(f"❌ 日志保存失败: {str(e)}")
 
 class GaiaNetCLI:
     """命令行自动化模式"""
