@@ -111,7 +111,6 @@ check_and_install_python311() {
         local version=$(python3.11 --version 2>/dev/null | grep -o "3\.11\.[0-9]*")
         if [ -n "$version" ]; then
             info "✅ Python 3.11已安装: Python $version"
-            # 设置python3命令指向python3.11
             export PYTHON3_CMD="python3.11"
             return 0
         fi
@@ -127,7 +126,18 @@ check_and_install_python311() {
             export PYTHON3_CMD="python3"
             return 0
         else
-            warning "⚠️ 当前版本是Python $current_version，但GUI需要Python 3.11"
+            # 如果是Python 3.9或更高版本，先尝试使用它
+            local major_version=$(echo "$current_version" | cut -d'.' -f1)
+            local minor_version=$(echo "$current_version" | cut -d'.' -f2)
+            
+            if [ "$major_version" = "3" ] && [ "$minor_version" -ge "9" ]; then
+                warning "⚠️ 当前版本是Python $current_version，尝试使用现有版本运行GUI"
+                info "💡 如果GUI运行出现问题，建议手动安装Python 3.11"
+                export PYTHON3_CMD="python3"
+                return 0
+            else
+                warning "⚠️ 当前版本是Python $current_version，但GUI推荐Python 3.11"
+            fi
         fi
     fi
     
@@ -136,7 +146,7 @@ check_and_install_python311() {
     
     # 检查是否安装了Homebrew
     if command -v brew >/dev/null 2>&1; then
-        info "📦 使用Homebrew安装Python 3.11..."
+        info "📦 使用现有Homebrew安装Python 3.11..."
         if brew install python@3.11; then
             info "✅ Python 3.11安装完成"
             
@@ -149,10 +159,7 @@ check_and_install_python311() {
             if [ -f "$python311_path" ]; then
                 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
                 export PYTHON3_CMD="python3.11"
-                
-                # 更新shell配置文件
                 update_shell_config_for_python311
-                
                 info "✅ Python 3.11已添加到PATH"
                 return 0
             else
@@ -163,18 +170,28 @@ check_and_install_python311() {
             error "❌ Homebrew安装Python 3.11失败"
         fi
     else
-        warning "⚠️ 未安装Homebrew，尝试安装..."
-        if install_homebrew_and_python311; then
+        warning "⚠️ 未安装Homebrew，跳过Python 3.11安装"
+        info "💡 将使用系统默认Python版本"
+        if command -v python3 >/dev/null 2>&1; then
+            export PYTHON3_CMD="python3"
             return 0
         else
-            error "❌ 安装失败"
-            return 1
+            error "❌ 系统未安装Python 3"
+            error "请手动安装Python 3.11: brew install python@3.11"
+            exit 1
         fi
     fi
     
+    # 如果Homebrew安装失败，但有系统Python，使用系统版本
+    if command -v python3 >/dev/null 2>&1; then
+        warning "⚠️ Python 3.11安装失败，使用系统默认Python版本"
+        export PYTHON3_CMD="python3"
+        return 0
+    fi
+    
     # 如果所有方法都失败了
-    error "❌ 无法安装Python 3.11"
-    error "请手动安装Python 3.11后重新运行此脚本"
+    error "❌ 无法获得可用的Python版本"
+    error "请手动安装Python后重新运行此脚本"
     error "推荐方法: brew install python@3.11"
     exit 1
 }
