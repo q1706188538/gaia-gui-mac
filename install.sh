@@ -93,41 +93,6 @@ check_environment() {
         warning "此脚本专为macOS设计，其他系统可能需要调整"
     fi
     
-    # 检查并安装Xcode命令行工具
-    if ! xcode-select -p >/dev/null 2>&1; then
-        warning "⚠️ Xcode命令行工具未安装"
-        info "🔧 需要安装Xcode命令行工具才能继续"
-        echo ""
-        highlight "📋 请按以下步骤操作："
-        echo "1. 系统会弹出安装对话框，请点击 '安装'"
-        echo "2. 等待安装完成（通常需要几分钟）"
-        echo "3. 安装完成后，重新运行此脚本"
-        echo ""
-        info "⏳ 正在启动安装程序..."
-        
-        # 启动安装程序
-        xcode-select --install 2>/dev/null
-        
-        echo ""
-        warning "⏸️ 脚本已暂停，请完成Xcode命令行工具安装后重新运行"
-        echo ""
-        highlight "💡 重新运行命令："
-        
-        # 构建重新运行命令
-        local rerun_cmd="curl -sSL https://raw.githubusercontent.com/q1706188538/gaia-gui-mac/main/install.sh | bash -s -- --full-auto --nodes $NODES_COUNT"
-        if [ -n "$DOMAIN_ID" ]; then
-            rerun_cmd="$rerun_cmd --domain-id $DOMAIN_ID"
-        fi
-        if [ -n "$WALLET_KEY" ]; then
-            rerun_cmd="$rerun_cmd --wallet \"$WALLET_KEY\""
-        fi
-        
-        echo "$rerun_cmd"
-        exit 0
-    else
-        info "✅ Xcode命令行工具已安装"
-    fi
-    
     # 检查Python3
     if ! command -v python3 >/dev/null 2>&1; then
         error "Python3未安装，请先安装Python3"
@@ -138,14 +103,79 @@ check_environment() {
         info "✅ Python3已安装: $python_version"
     fi
     
-    # 检查Git
-    if ! command -v git >/dev/null 2>&1; then
-        error "Git未安装，请先安装Git"
-        error "建议使用Homebrew安装: brew install git"
+    # 检查网络连接
+    if ! curl -s --max-time 10 https://github.com >/dev/null; then
+        error "无法连接到GitHub，请检查网络连接"
         exit 1
+    fi
+    
+    info "✅ 网络连接正常"
+    
+    # 检查Git（如果没有Git，我们使用ZIP下载方案）
+    if ! command -v git >/dev/null 2>&1; then
+        warning "⚠️ Git未安装，将使用ZIP下载方案（更快）"
+        USE_CURL_DOWNLOAD=true
     else
         local git_version=$(git --version 2>/dev/null || echo "git version unknown")
         info "✅ Git已安装: $git_version"
+        USE_CURL_DOWNLOAD=false
+    fi
+}
+
+# 修改下载函数支持curl方案
+install_gaianet_gui() {
+    info "📥 下载GaiaNet GUI最新版本..."
+    
+    # 如果目录已存在，先备份
+    if [ -d "$INSTALL_DIR" ]; then
+        local backup_dir="${INSTALL_DIR}.backup.$(date +%s)"
+        warning "目录已存在，备份到: $backup_dir"
+        mv "$INSTALL_DIR" "$backup_dir"
+    fi
+    
+    if [ "$USE_CURL_DOWNLOAD" = true ]; then
+        # 使用curl下载ZIP文件
+        info "📦 使用ZIP下载方案（快速）..."
+        local zip_file="/tmp/gaia-gui-mac.zip"
+        
+        if curl -sSL "https://github.com/q1706188538/gaia-gui-mac/archive/refs/heads/main.zip" -o "$zip_file"; then
+            info "✅ ZIP文件下载完成"
+            
+            # 解压到临时目录
+            local temp_extract="/tmp/gaia-gui-extract-$$"
+            mkdir -p "$temp_extract"
+            
+            if command -v unzip >/dev/null 2>&1; then
+                if unzip -q "$zip_file" -d "$temp_extract"; then
+                    # 移动到目标目录
+                    mv "$temp_extract/gaia-gui-mac-main" "$INSTALL_DIR"
+                    rm -rf "$temp_extract"
+                    rm -f "$zip_file"
+                    info "✅ 项目解压完成"
+                else
+                    error "ZIP解压失败"
+                    rm -rf "$temp_extract"
+                    rm -f "$zip_file"
+                    exit 1
+                fi
+            else
+                error "系统缺少unzip命令"
+                rm -rf "$temp_extract"
+                rm -f "$zip_file"
+                exit 1
+            fi
+        else
+            error "ZIP文件下载失败"
+            exit 1
+        fi
+    else
+        # 使用git clone
+        if git clone "$REPO_URL" "$INSTALL_DIR"; then
+            info "✅ Git克隆完成"
+        else
+            error "Git克隆失败，请检查网络连接或仓库地址"
+            exit 1
+        fi
     fi
     
     # 检查网络连接
@@ -352,20 +382,86 @@ install_main_gaianet_node() {
     if curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash; then
         info "  ✅ GaiaNet主节点安装完成"
         
+        # 设置环境变量
+        info "  🔧 设置环境变量..."
+        
+        # 添加到PATH
+        export PATH="$HOME/gaianet/bin:$PATH"
+        
+        # 创建或更新shell配置文件
+        local shell_config=""
+        if [ "$SHELL" = "/bin/zsh" ] || [ "$SHELL" = "/usr/bin/zsh" ]; then
+            shell_config="$HOME/.zshrc"
+        elif [ "$SHELL" = "/bin/bash" ] || [ "$SHELL" = "/usr/bin/bash" ]; then
+            shell_config="$HOME/.bash_profile"
+        fi
+        
+        if [ -n "$shell_config" ]; then
+            # 检查是否已经添加了PATH
+            if ! grep -q "gaianet/bin" "$shell_config" 2>/dev/null; then
+                echo 'export PATH="$HOME/gaianet/bin:$PATH"' >> "$shell_config"
+                info "  ✅ 已添加PATH到 $shell_config"
+            fi
+        fi
+        
         # 初始化主节点(下载模型文件)
         info "  📦 初始化主节点和下载模型文件..."
         cd "$HOME/gaianet"
-        if timeout 1800 ./bin/gaianet init; then  # 30分钟超时
-            info "  ✅ 主节点模型文件下载完成"
-            return 0
+        
+        # 确保gaianet命令可用
+        if [ -f "./bin/gaianet" ]; then
+            info "  🔄 执行 gaianet init (这可能需要几分钟)..."
+            
+            # 使用自定义超时函数（macOS没有timeout命令）
+            if run_with_timeout 1800 "./bin/gaianet" "init"; then
+                info "  ✅ 主节点模型文件下载完成"
+                return 0
+            else
+                error "  ❌ 主节点模型文件下载失败或超时"
+                error "  💡 您可以稍后手动运行: cd ~/gaianet && ./bin/gaianet init"
+                return 1
+            fi
         else
-            error "  ❌ 主节点模型文件下载失败或超时"
+            error "  ❌ gaianet命令未找到"
             return 1
         fi
     else
         error "  ❌ GaiaNet主节点安装失败"
         return 1
     fi
+}
+
+# 自定义超时函数（替代timeout命令）
+run_with_timeout() {
+    local timeout_duration=$1
+    shift
+    local cmd=("$@")
+    
+    # 在后台运行命令
+    "${cmd[@]}" &
+    local pid=$!
+    
+    # 等待指定时间
+    local count=0
+    while [ $count -lt $timeout_duration ]; do
+        if ! kill -0 $pid 2>/dev/null; then
+            # 进程已经结束
+            wait $pid
+            return $?
+        fi
+        sleep 1
+        count=$((count + 1))
+        
+        # 每30秒显示一次进度
+        if [ $((count % 30)) -eq 0 ]; then
+            info "    ⏳ 已等待 $((count / 60)) 分钟，继续下载中..."
+        fi
+    done
+    
+    # 超时，杀死进程
+    kill $pid 2>/dev/null
+    wait $pid 2>/dev/null
+    return 124  # timeout exit code
 }
 
 # 为完整自动化创建节点配置
