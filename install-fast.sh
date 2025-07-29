@@ -488,9 +488,83 @@ create_nodes_config_for_full_auto_fast() {
     
     # 确保在正确的目录中执行
     cd "$INSTALL_DIR"
-    $PYTHON3_CMD src/gaianet_gui.py --create-config --nodes "$NODES_COUNT"
+    
+    # 直接创建兼容deploy_multinode_advanced.sh的配置文件
+    cat > nodes_config.json << EOF
+{
+  "shared_services": {
+    "chat_port": 9000,
+    "embedding_port": 9001,
+    "auto_start": true
+  },
+  "nodes": [
+EOF
+
+    # 生成节点配置
+    for i in $(seq 1 $NODES_COUNT); do
+        local port=$((8080 + i - 1))
+        cat >> nodes_config.json << EOF
+    {
+      "name": "node$i",
+      "base_dir": "$HOME/gaianet_node$i",
+      "port": $port,
+      "local_only": false,
+      "force_rag": true,
+      "auto_start": true
+    }EOF
+        
+        # 如果不是最后一个节点，添加逗号
+        if [ $i -lt $NODES_COUNT ]; then
+            echo "," >> nodes_config.json
+        else
+            echo "" >> nodes_config.json
+        fi
+    done
+
+    cat >> nodes_config.json << EOF
+  ]
+}
+EOF
+
+    # 同时创建GUI需要的简化配置
+    $PYTHON3_CMD -c "
+import json
+
+config = {
+    'auto_deploy': {
+        'init_nodes': True,
+        'start_nodes': True,
+        'bind_wallet': True
+    },
+    'wallet': {
+        'private_key': '',
+        'address': '',
+        'batch_bind': {
+            'enabled': True,
+            'start_node': 1,
+            'count': $NODES_COUNT
+        },
+        'auto_join_domain': {
+            'enabled': True,
+            'domain_id': '$DOMAIN_ID'
+        }
+    },
+    'nodes': {
+        'base_path': '~/gaianet_node',
+        'count': $NODES_COUNT
+    }
+}
+
+with open('auto-deploy-config.json', 'w') as f:
+    json.dump(config, f, indent=2, ensure_ascii=False)
+    
+print('✅ GUI配置文件已创建')
+"
     
     info "  ✅ 节点配置创建完成"
+    info "  📁 创建了两个配置文件:"
+    info "    - nodes_config.json (部署脚本使用)"
+    info "    - auto-deploy-config.json (GUI使用)"
 }
 
 # 生成钱包
@@ -624,51 +698,62 @@ main() {
         info "📂 第3步: 初始化从节点(复制主节点文件)..."
         
         # 调试：检查配置文件是否存在
-        if [ ! -f "auto-deploy-config.json" ]; then
-            error "❌ 配置文件不存在: auto-deploy-config.json"
+        if [ ! -f "nodes_config.json" ]; then
+            error "❌ 部署脚本配置文件不存在: nodes_config.json"
             info "当前目录: $(pwd)"
             info "目录内容:"
             ls -la | head -10
             exit 1
         fi
         
-        info "📋 配置文件内容预览:"
-        head -10 auto-deploy-config.json | sed 's/^/    /'
+        info "📋 节点配置文件内容预览:"
+        head -15 nodes_config.json | sed 's/^/    /'
         
-        if ! $PYTHON3_CMD src/gaianet_gui.py --headless --init --config auto-deploy-config.json; then
-            error "❌ 从节点初始化失败"
+        # 直接使用部署脚本初始化
+        info "🔧 使用部署脚本初始化从节点..."
+        if [ -f "src/deploy_multinode_advanced.sh" ]; then
+            chmod +x src/deploy_multinode_advanced.sh
             
-            # 调试信息
-            info "🔍 调试信息:"
-            info "  - 主节点目录: $HOME/gaianet"
-            if [ -d "$HOME/gaianet" ]; then
-                info "  - 主节点存在: ✅"
-                info "  - 主节点内容:"
-                ls -la "$HOME/gaianet" | head -5 | sed 's/^/      /'
+            # 复制配置到脚本目录
+            cp nodes_config.json src/nodes_config.json
+            
+            cd src
+            if ./deploy_multinode_advanced.sh init; then
+                info "✅ 从节点初始化成功"
+                cd ..
             else
-                info "  - 主节点存在: ❌"
-            fi
-            
-            # 尝试直接使用脚本初始化
-            info "🔄 尝试直接使用部署脚本初始化..."
-            if [ -f "src/deploy_multinode_advanced.sh" ]; then
-                chmod +x src/deploy_multinode_advanced.sh
-                if src/deploy_multinode_advanced.sh init; then
-                    info "✅ 直接脚本初始化成功"
+                error "❌ 从节点初始化失败"
+                
+                # 调试信息
+                info "🔍 调试信息:"
+                info "  - 主节点目录: $HOME/gaianet"
+                if [ -d "$HOME/gaianet" ]; then
+                    info "  - 主节点存在: ✅"
+                    info "  - 主节点内容:"
+                    ls -la "$HOME/gaianet" | head -5 | sed 's/^/      /'
                 else
-                    error "❌ 直接脚本初始化也失败"
-                    exit 1
+                    info "  - 主节点存在: ❌"
+                    error "  - 主节点未安装，请先运行: gaianet init"
                 fi
-            else
-                error "❌ 部署脚本不存在"
+                cd ..
                 exit 1
             fi
+        else
+            error "❌ 部署脚本不存在: src/deploy_multinode_advanced.sh"
+            exit 1
         fi
         
         # 第4步: 启动所有节点
         info "🚀 第4步: 启动所有节点..."
-        if ! $PYTHON3_CMD src/gaianet_gui.py --headless --start --config auto-deploy-config.json; then
+        
+        # 使用部署脚本启动节点
+        cd src
+        if ./deploy_multinode_advanced.sh start; then
+            info "✅ 所有节点启动成功"
+            cd ..
+        else
             error "❌ 节点启动失败"
+            cd ..
             exit 1
         fi
         
