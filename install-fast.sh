@@ -501,9 +501,9 @@ install_main_gaianet_node_fast() {
     if curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash; then
         info "  ✅ GaiaNet主节点安装完成"
         
-        # 设置环境变量
+        # 设置环境变量（包括gaianet和wasmedge）
         info "  🔧 设置环境变量..."
-        export PATH="$HOME/gaianet/bin:$PATH"
+        export PATH="$HOME/gaianet/bin:$HOME/.wasmedge/bin:$PATH"
         
         # 更新shell配置文件
         local shell_config=""
@@ -514,9 +514,15 @@ install_main_gaianet_node_fast() {
         fi
         
         if [ -n "$shell_config" ]; then
+            # 添加gaianet路径
             if ! grep -q "gaianet/bin" "$shell_config" 2>/dev/null; then
                 echo 'export PATH="$HOME/gaianet/bin:$PATH"' >> "$shell_config"
-                info "  ✅ 已添加PATH到 $shell_config"
+                info "  ✅ 已添加gaianet PATH到 $shell_config"
+            fi
+            # 添加wasmedge路径
+            if ! grep -q ".wasmedge/bin" "$shell_config" 2>/dev/null; then
+                echo 'export PATH="$HOME/.wasmedge/bin:$PATH"' >> "$shell_config"
+                info "  ✅ 已添加wasmedge PATH到 $shell_config"
             fi
         fi
         
