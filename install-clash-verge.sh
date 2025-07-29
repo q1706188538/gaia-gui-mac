@@ -90,54 +90,77 @@ install_homebrew() {
         if [[ ! -t 0 ]] && [[ -n "$SUDO_PASSWORD" ]]; then
             info "🔧 检测到管道模式，使用自动化安装..."
             
-            # 方法1: 验证密码并尝试非交互安装
+            # 验证密码
             if echo "$SUDO_PASSWORD" | sudo -S -k true >/dev/null 2>&1; then
                 info "✅ 密码验证成功，开始安装..."
                 
-                # 设置非交互环境变量
-                export NONINTERACTIVE=1
-                export CI=1
-                
-                # 尝试通过管道安装
-                (
-                    echo "$SUDO_PASSWORD"
-                    echo ""  # 回车键确认
-                ) | /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" 2>/dev/null || {
-                    # 方法2: 尝试使用expect（如果可用）
-                    if command -v expect >/dev/null 2>&1; then
-                        info "🔄 尝试使用expect方式..."
-                        expect -c "
-                            spawn /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"
-                            expect {
-                                \"Password:\" {
-                                    send \"$SUDO_PASSWORD\r\"
-                                    exp_continue
-                                }
-                                \"Press RETURN to continue\" {
-                                    send \"\r\"
-                                    exp_continue
-                                }
-                                timeout { exit 1 }
-                                eof
-                            }
-                        " || {
-                            error "❌ expect安装也失败了"
-                            exit 1
-                        }
+                # 方法1: 下载安装脚本并直接执行
+                info "📥 下载Homebrew安装脚本..."
+                local install_script="/tmp/homebrew_install_$$"
+                if curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$install_script"; then
+                    chmod +x "$install_script"
+                    
+                    # 设置环境变量并执行安装
+                    info "🔧 执行非交互安装..."
+                    if echo "$SUDO_PASSWORD" | NONINTERACTIVE=1 CI=1 sudo -S -E bash "$install_script"; then
+                        info "✅ Homebrew安装成功"
+                        rm -f "$install_script"
                     else
-                        # 方法3: 使用sudo直接下载安装脚本并执行
-                        info "🔄 尝试直接下载安装..."
-                        local install_script="/tmp/homebrew_install.sh"
-                        curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$install_script"
-                        chmod +x "$install_script"
-                        echo "$SUDO_PASSWORD" | NONINTERACTIVE=1 CI=1 sudo -S -E "$install_script" || {
-                            error "❌ 自动安装失败，请尝试交互模式或手动安装Homebrew"
+                        error "❌ 直接安装失败，尝试expect方式..."
+                        
+                        # 方法2: 使用expect（如果可用）
+                        if command -v expect >/dev/null 2>&1; then
+                            info "🔄 使用expect自动化安装..."
+                            
+                            # 创建expect脚本
+                            cat > "/tmp/homebrew_expect_$$" << 'EXPECT_EOF'
+#!/usr/bin/expect -f
+set timeout 300
+set password [lindex $argv 0]
+set script_path [lindex $argv 1]
+
+spawn bash $script_path
+expect {
+    "Password:" {
+        send "$password\r"
+        exp_continue
+    }
+    "Press RETURN to continue or any other key to abort" {
+        send "\r"
+        exp_continue
+    }
+    "Press RETURN to continue" {
+        send "\r"
+        exp_continue
+    }
+    timeout {
+        puts "安装超时"
+        exit 1
+    }
+    eof
+}
+EXPECT_EOF
+                            
+                            chmod +x "/tmp/homebrew_expect_$$"
+                            if NONINTERACTIVE=1 CI=1 expect "/tmp/homebrew_expect_$$" "$SUDO_PASSWORD" "$install_script"; then
+                                info "✅ expect安装成功"
+                            else
+                                error "❌ expect安装失败"
+                                rm -f "$install_script" "/tmp/homebrew_expect_$$"
+                                exit 1
+                            fi
+                            rm -f "/tmp/homebrew_expect_$$"
+                        else
+                            error "❌ expect命令不可用，安装失败"
                             rm -f "$install_script"
                             exit 1
-                        }
-                        rm -f "$install_script"
+                        fi
                     fi
-                }
+                    rm -f "$install_script"
+                else
+                    error "❌ 无法下载Homebrew安装脚本"
+                    exit 1
+                fi
             else
                 error "❌ 密码验证失败"
                 exit 1
