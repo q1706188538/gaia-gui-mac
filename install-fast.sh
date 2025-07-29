@@ -323,11 +323,35 @@ install_python_dependencies() {
     fi
     
     local dependencies="pillow requests eth-account web3"
-    if $PYTHON3_CMD -m pip install $dependencies; then
+    
+    # 如果使用代理，需要配置pip的代理和SSL设置，直接忽略SSL验证
+    local pip_args="--trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org"
+    if [ "$USE_PROXY" = true ] && [ -n "$PROXY_HOST" ] && [ -n "$PROXY_PORT" ] && [ -n "$PROXY_USER" ] && [ -n "$PROXY_PASS" ]; then
+        pip_args="$pip_args --proxy http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}"
+        info "🌐 使用代理安装Python依赖包（忽略SSL验证）..."
+    else
+        info "📦 安装Python依赖包（忽略SSL验证）..."
+    fi
+    
+    # 设置环境变量忽略SSL验证
+    export PYTHONHTTPSVERIFY=0
+    export SSL_VERIFY=false
+    
+    if $PYTHON3_CMD -m pip install $pip_args $dependencies; then
         info "✅ Python依赖安装完成"
     else
-        warning "⚠️ 部分依赖安装失败，GUI可能无法正常运行"
+        warning "⚠️ 部分依赖安装失败，尝试其他方法..."
+        info "💡 尝试完全忽略SSL验证安装依赖..."
+        if $PYTHON3_CMD -m pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org --disable-pip-version-check $dependencies; then
+            info "✅ Python依赖安装完成（完全忽略SSL）"
+        else
+            warning "⚠️ 依赖安装失败，可能影响GUI功能"
+        fi
     fi
+    
+    # 恢复SSL验证设置
+    unset PYTHONHTTPSVERIFY
+    unset SSL_VERIFY
 }
 
 # 更新shell配置文件以支持官方Python 3.11
