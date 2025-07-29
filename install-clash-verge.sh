@@ -85,12 +85,75 @@ echo "=================================================="
 install_homebrew() {
     if ! command -v brew >/dev/null 2>&1; then
         info "📦 安装 Homebrew..."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        
+        # 检查是否在非交互模式下运行（管道模式）
+        if [[ ! -t 0 ]] && [[ -n "$SUDO_PASSWORD" ]]; then
+            info "🔧 检测到管道模式，使用自动化安装..."
+            
+            # 方法1: 验证密码并尝试非交互安装
+            if echo "$SUDO_PASSWORD" | sudo -S -k true >/dev/null 2>&1; then
+                info "✅ 密码验证成功，开始安装..."
+                
+                # 设置非交互环境变量
+                export NONINTERACTIVE=1
+                export CI=1
+                
+                # 尝试通过管道安装
+                (
+                    echo "$SUDO_PASSWORD"
+                    echo ""  # 回车键确认
+                ) | /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" 2>/dev/null || {
+                    # 方法2: 尝试使用expect（如果可用）
+                    if command -v expect >/dev/null 2>&1; then
+                        info "🔄 尝试使用expect方式..."
+                        expect -c "
+                            spawn /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"
+                            expect {
+                                \"Password:\" {
+                                    send \"$SUDO_PASSWORD\r\"
+                                    exp_continue
+                                }
+                                \"Press RETURN to continue\" {
+                                    send \"\r\"
+                                    exp_continue
+                                }
+                                timeout { exit 1 }
+                                eof
+                            }
+                        " || {
+                            error "❌ expect安装也失败了"
+                            exit 1
+                        }
+                    else
+                        # 方法3: 使用sudo直接下载安装脚本并执行
+                        info "🔄 尝试直接下载安装..."
+                        local install_script="/tmp/homebrew_install.sh"
+                        curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$install_script"
+                        chmod +x "$install_script"
+                        echo "$SUDO_PASSWORD" | NONINTERACTIVE=1 CI=1 sudo -S -E "$install_script" || {
+                            error "❌ 自动安装失败，请尝试交互模式或手动安装Homebrew"
+                            rm -f "$install_script"
+                            exit 1
+                        }
+                        rm -f "$install_script"
+                    fi
+                }
+            else
+                error "❌ 密码验证失败"
+                exit 1
+            fi
+        else
+            # 交互模式安装
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        fi
         
         # 添加到 PATH
         if [[ -f "/opt/homebrew/bin/brew" ]]; then
             echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
             eval "$(/opt/homebrew/bin/brew shellenv)"
+        elif [[ -f "/usr/local/bin/brew" ]]; then
+            echo 'eval "$(/usr/local/bin/brew shellenv)"' >> ~/.zprofile
+            eval "$(/usr/local/bin/brew shellenv)"
         fi
     else
         info "✅ Homebrew 已安装"
