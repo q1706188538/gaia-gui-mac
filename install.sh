@@ -93,23 +93,60 @@ check_environment() {
         warning "此脚本专为macOS设计，其他系统可能需要调整"
     fi
     
+    # 检查并安装Xcode命令行工具
+    if ! xcode-select -p >/dev/null 2>&1; then
+        warning "⚠️ Xcode命令行工具未安装"
+        info "🔧 需要安装Xcode命令行工具才能继续"
+        echo ""
+        highlight "📋 请按以下步骤操作："
+        echo "1. 系统会弹出安装对话框，请点击 '安装'"
+        echo "2. 等待安装完成（通常需要几分钟）"
+        echo "3. 安装完成后，重新运行此脚本"
+        echo ""
+        info "⏳ 正在启动安装程序..."
+        
+        # 启动安装程序
+        xcode-select --install 2>/dev/null
+        
+        echo ""
+        warning "⏸️ 脚本已暂停，请完成Xcode命令行工具安装后重新运行"
+        echo ""
+        highlight "💡 重新运行命令："
+        
+        # 构建重新运行命令
+        local rerun_cmd="curl -sSL https://raw.githubusercontent.com/q1706188538/gaia-gui-mac/main/install.sh | bash -s -- --full-auto --nodes $NODES_COUNT"
+        if [ -n "$DOMAIN_ID" ]; then
+            rerun_cmd="$rerun_cmd --domain-id $DOMAIN_ID"
+        fi
+        if [ -n "$WALLET_KEY" ]; then
+            rerun_cmd="$rerun_cmd --wallet \"$WALLET_KEY\""
+        fi
+        
+        echo "$rerun_cmd"
+        exit 0
+    else
+        info "✅ Xcode命令行工具已安装"
+    fi
+    
     # 检查Python3
     if ! command -v python3 >/dev/null 2>&1; then
         error "Python3未安装，请先安装Python3"
         error "建议使用Homebrew安装: brew install python"
         exit 1
+    else
+        local python_version=$(python3 --version 2>/dev/null || echo "Python 3.x")
+        info "✅ Python3已安装: $python_version"
     fi
-    
-    info "✅ Python3已安装: $(python3 --version)"
     
     # 检查Git
     if ! command -v git >/dev/null 2>&1; then
         error "Git未安装，请先安装Git"
         error "建议使用Homebrew安装: brew install git"
         exit 1
+    else
+        local git_version=$(git --version 2>/dev/null || echo "git version unknown")
+        info "✅ Git已安装: $git_version"
     fi
-    
-    info "✅ Git已安装: $(git --version)"
     
     # 检查网络连接
     if ! curl -s --max-time 10 https://github.com >/dev/null; then
