@@ -4495,28 +4495,36 @@ class GaiaNetCLI:
         else:
             print(f"✅ 使用已有的访问令牌: {self.access_token[:20]}...")
     def wallet_login_cli(self):
-        """CLI版本钱包登录"""
+        """CLI版本钱包登录（使用与GUI相同的接口）"""
         try:
             import requests
             from eth_account.messages import encode_defunct
+            import time
             
             print("🔐 CLI版本钱包登录...")
             
-            # 获取当前时间戳作为nonce
-            import time
-            nonce = str(int(time.time() * 1000))
+            # 创建签名消息（与GUI版本相同）
+            timestamp = int(time.time())
+            message_data = {
+                "wallet_address": self.wallet_account.address,
+                "timestamp": timestamp,
+                "message": "By signing this message, you acknowledge that you have read and understood our Terms of Service. You agree to abide by all the terms and conditions."
+            }
             
-            # 创建登录消息
-            login_message = f"Please sign this message to authenticate: {nonce}"
-            message_hash = encode_defunct(text=login_message)
+            # 对消息进行签名
+            message_text = json.dumps(message_data, separators=(',', ':'))
+            print(f"   签名消息: {message_text}")
+            
+            message_hash = encode_defunct(text=message_text)
             signature = self.wallet_account.sign_message(message_hash)
             
-            # 发送登录请求
-            url = "https://api.gaianet.ai/api/v1/users/wallet-login/"
+            print(f"   签名结果: {signature.signature.hex()[:20]}...")
+            
+            # 发送登录请求（使用与GUI相同的接口）
+            url = "https://api.gaianet.ai/api/v1/users/connect-wallet/"
             payload = {
-                "wallet_address": self.wallet_account.address,
                 "signature": signature.signature.hex(),
-                "message": login_message
+                "message": message_data
             }
             
             headers = {
@@ -4527,8 +4535,13 @@ class GaiaNetCLI:
             print(f"📡 发送登录请求:")
             print(f"   URL: {url}")
             print(f"   钱包地址: {self.wallet_account.address}")
+            print(f"   时间戳: {timestamp}")
             
             response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            print(f"📥 收到响应:")
+            print(f"   状态码: {response.status_code}")
+            print(f"   响应体: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
@@ -4543,7 +4556,8 @@ class GaiaNetCLI:
                     print(f"   访问令牌: {self.access_token[:20]}...")
                     return True
                 else:
-                    print(f"❌ 登录失败: {data.get('message', '未知错误')}")
+                    print(f"❌ 登录失败: {data.get('msg', '未知错误')}")
+                    print(f"   完整响应: {data}")
                     return False
             else:
                 print(f"❌ 登录HTTP错误: {response.status_code}")
