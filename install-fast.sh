@@ -26,6 +26,7 @@ FULL_AUTO=false
 NODES_COUNT=20
 WALLET_KEY=""
 DOMAIN_ID=""
+SUDO_PASSWORD=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -50,6 +51,10 @@ while [[ $# -gt 0 ]]; do
             DOMAIN_ID="$2"
             shift 2
             ;;
+        --sudo-password)
+            SUDO_PASSWORD="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "GaiaNet GUI 快速安装脚本 (无需Git)"
             echo ""
@@ -60,10 +65,12 @@ while [[ $# -gt 0 ]]; do
             echo "  --nodes NUM       节点数量 (默认: 20)"
             echo "  --wallet KEY      钱包私钥(可选，不提供则自动生成)"
             echo "  --domain-id ID    要加入的域ID(可选)"
+            echo "  --sudo-password PWD  管理员密码(用于自动安装Homebrew)"
             echo "  -h, --help        显示帮助信息"
             echo ""
             echo "示例:"
             echo "  $0 --full-auto --nodes 20 --domain-id 742"
+            echo "  $0 --full-auto --sudo-password 'your_password' --nodes 20"
             exit 0
             ;;
         *)
@@ -176,12 +183,38 @@ check_and_install_python311() {
 install_homebrew_and_python311() {
     info "🍺 安装Homebrew..."
     
-    # 安装Homebrew
-    if /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
-        info "✅ Homebrew安装完成"
+    # 使用提供的密码进行非交互安装
+    if [ -n "$SUDO_PASSWORD" ]; then
+        info "📝 使用提供的管理员密码进行自动安装..."
         
-        # 添加Homebrew到PATH
-        if [ -f "/opt/homebrew/bin/brew" ]; then
+        # 非交互模式安装Homebrew
+        export NONINTERACTIVE=1
+        echo "$SUDO_PASSWORD" | sudo -S echo "验证密码..." 2>/dev/null
+        if [ $? -eq 0 ]; then
+            info "✅ 密码验证成功"
+            # 使用非交互模式安装Homebrew
+            if echo "$SUDO_PASSWORD" | sudo -S /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" <<< $'\n'; then
+                info "✅ Homebrew安装完成"
+            else
+                error "❌ Homebrew安装失败"
+                return 1
+            fi
+        else
+            error "❌ 管理员密码验证失败"
+            return 1
+        fi
+    else
+        # 交互模式安装
+        if /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+            info "✅ Homebrew安装完成"
+        else
+            error "❌ Homebrew安装失败"
+            return 1
+        fi
+    fi
+    
+    # 添加Homebrew到PATH
+    if [ -f "/opt/homebrew/bin/brew" ]; then
             export PATH="/opt/homebrew/bin:$PATH"
             echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zprofile
         elif [ -f "/usr/local/bin/brew" ]; then
