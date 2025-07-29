@@ -27,6 +27,11 @@ NODES_COUNT=20
 WALLET_KEY=""
 DOMAIN_ID=""
 SUDO_PASSWORD=""
+USE_PROXY=false
+PROXY_HOST=""
+PROXY_PORT=""
+PROXY_USER=""
+PROXY_PASS=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -55,6 +60,34 @@ while [[ $# -gt 0 ]]; do
             SUDO_PASSWORD="$2"
             shift 2
             ;;
+        --use-proxy)
+            USE_PROXY=true
+            shift
+            ;;
+        --proxy-host)
+            PROXY_HOST="$2"
+            shift 2
+            ;;
+        --proxy-port)
+            PROXY_PORT="$2"
+            shift 2
+            ;;
+        --proxy-user)
+            PROXY_USER="$2"
+            shift 2
+            ;;
+        --proxy-pass)
+            PROXY_PASS="$2"
+            shift 2
+            ;;
+        --use-default-proxy)
+            USE_PROXY=true
+            PROXY_HOST="5.253.36.69"
+            PROXY_PORT="22078"
+            PROXY_USER="0EGMs0GNqO"
+            PROXY_PASS="lCcZ2Ai3sF"
+            shift
+            ;;
         -h|--help)
             echo "GaiaNet GUI 快速安装脚本 (无需Git)"
             echo ""
@@ -66,16 +99,24 @@ while [[ $# -gt 0 ]]; do
             echo "  --wallet KEY      钱包私钥(可选，不提供则自动生成)"
             echo "  --domain-id ID    要加入的域ID(可选)"
             echo "  --sudo-password PWD  管理员密码(用于自动安装Python和Homebrew)"
+            echo "  --use-default-proxy  使用默认代理加速下载"
+            echo "  --use-proxy       使用自定义代理"
+            echo "  --proxy-host HOST 代理服务器地址"
+            echo "  --proxy-port PORT 代理服务器端口"
+            echo "  --proxy-user USER 代理用户名"
+            echo "  --proxy-pass PASS 代理密码"
             echo "  -h, --help        显示帮助信息"
             echo ""
             echo "示例:"
             echo "  $0 --full-auto --nodes 20 --domain-id 742"
+            echo "  $0 --full-auto --use-default-proxy --nodes 20"
             echo "  $0 --full-auto --sudo-password 'your_password' --nodes 20"
             echo ""
             echo "注意:"
             echo "• 脚本会自动下载安装官方Python 3.11(包含tkinter支持)"
             echo "• 如果提供了--sudo-password，将自动化安装过程"
             echo "• 如果未提供密码，安装时会提示输入管理员密码"
+            echo "• 使用--use-default-proxy可以加速下载"
             exit 0
             ;;
         *)
@@ -85,15 +126,42 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# 配置代理
+setup_proxy() {
+    if [ "$USE_PROXY" = true ]; then
+        if [ -n "$PROXY_HOST" ] && [ -n "$PROXY_PORT" ] && [ -n "$PROXY_USER" ] && [ -n "$PROXY_PASS" ]; then
+            export http_proxy="http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}"
+            export https_proxy="http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}"
+            export HTTP_PROXY="$http_proxy"
+            export HTTPS_PROXY="$https_proxy"
+            info "🌐 已配置代理: ${PROXY_HOST}:${PROXY_PORT}"
+        else
+            warning "⚠️ 代理配置不完整，跳过代理设置"
+            USE_PROXY=false
+        fi
+    fi
+}
+
+# 获取curl代理参数
+get_curl_proxy_args() {
+    if [ "$USE_PROXY" = true ] && [ -n "$PROXY_HOST" ] && [ -n "$PROXY_PORT" ] && [ -n "$PROXY_USER" ] && [ -n "$PROXY_PASS" ]; then
+        echo "--proxy http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}"
+    fi
+}
+
 # 快速环境检查
 check_environment() {
     info "🔍 快速环境检查..."
+    
+    # 设置代理
+    setup_proxy
     
     # 检查并安装Python 3.11
     check_and_install_python311
     
     # 检查网络
-    if ! curl -s --max-time 10 https://github.com >/dev/null; then
+    local curl_proxy_args=$(get_curl_proxy_args)
+    if ! curl $curl_proxy_args -s --max-time 10 https://github.com >/dev/null; then
         error "无法连接到GitHub，请检查网络连接"
         exit 1
     fi
@@ -158,8 +226,9 @@ check_and_install_python311() {
     # 方案1: 使用官方Python安装包 (推荐)
     info "📦 下载并安装官方Python 3.11..."
     local python_pkg="/tmp/python-3.11.9-macos11.pkg"
+    local curl_proxy_args=$(get_curl_proxy_args)
     
-    if curl -L -o "$python_pkg" "https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"; then
+    if curl $curl_proxy_args -L -o "$python_pkg" "https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"; then
         info "✅ Python安装包下载完成"
         
         # 安装Python包
@@ -328,7 +397,7 @@ HOMEBREW_SCRIPT
         fi
     else
         # 交互模式安装
-        if /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+        if /bin/bash -c "$(curl $curl_proxy_args -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
             info "✅ Homebrew安装完成"
         else
             error "❌ Homebrew安装失败"
@@ -415,8 +484,9 @@ fast_install() {
     
     # 下载ZIP文件
     local zip_file="/tmp/gaia-gui-mac-fast.zip"
+    local curl_proxy_args=$(get_curl_proxy_args)
     
-    if curl -sSL "https://github.com/q1706188538/gaia-gui-mac/archive/refs/heads/main.zip" -o "$zip_file"; then
+    if curl $curl_proxy_args -sSL "https://github.com/q1706188538/gaia-gui-mac/archive/refs/heads/main.zip" -o "$zip_file"; then
         info "✅ ZIP文件下载完成 (约几MB)"
         
         # 解压到临时目录
@@ -495,7 +565,8 @@ install_main_gaianet_node_fast() {
     fi
     
     # 下载并安装GaiaNet
-    if curl -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash; then
+    local curl_proxy_args=$(get_curl_proxy_args)
+    if curl $curl_proxy_args -sSfL 'https://github.com/GaiaNet-AI/gaianet-node/releases/latest/download/install.sh' | bash; then
         info "  ✅ GaiaNet主节点安装完成"
         
         # 设置环境变量
