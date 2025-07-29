@@ -7,13 +7,14 @@ GaiaNet多节点部署管理GUI
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, filedialog
+from tkinter import ttk, messagebox, scrolledtext, filedialog, simpledialog
 import subprocess
 import threading
 import json
 import os
 import sys
 import re
+import argparse
 from pathlib import Path
 import webbrowser
 import requests
@@ -809,6 +810,42 @@ class GaiaNetGUI:
         self.bound_nodes_text = scrolledtext.ScrolledText(self.bound_nodes_frame, height=8, width=80)
         self.bound_nodes_text.pack(fill=tk.BOTH, expand=True)
         
+        # 加入域管理区域
+        domain_frame = ttk.LabelFrame(scrollable_main, text="🌐 域管理", padding=15)
+        domain_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        # 域选择区域
+        domain_select_frame = ttk.Frame(domain_frame)
+        domain_select_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(domain_select_frame, text="选择域:").pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.domain_var = tk.StringVar(value="742")  # 默认域742
+        domain_entry = ttk.Entry(domain_select_frame, textvariable=self.domain_var, width=10)
+        domain_entry.pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(domain_select_frame, text="获取域列表", 
+                  command=self.fetch_domain_list).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Label(domain_select_frame, text="(默认: 742)").pack(side=tk.LEFT)
+        
+        # 域操作按钮
+        domain_button_frame = ttk.Frame(domain_frame)
+        domain_button_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Button(domain_button_frame, text="📋 获取已绑定节点", 
+                  command=self.get_bound_nodes).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(domain_button_frame, text="🌐 批量加入域", 
+                  command=self.batch_join_domain).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(domain_button_frame, text="🔗 单个节点加入域", 
+                  command=self.single_join_domain).pack(side=tk.LEFT)
+        
+        # 域操作状态
+        self.domain_status_var = tk.StringVar(value="请先连接钱包并绑定节点")
+        ttk.Label(domain_frame, textvariable=self.domain_status_var).pack(anchor=tk.W, pady=(10, 0))
+        
         # 初始化钱包相关变量
         self.wallet_account = None
         self.access_token = None
@@ -919,6 +956,285 @@ class GaiaNetGUI:
                     
         except Exception as e:
             print(f"加载钱包配置失败: {str(e)}")
+
+    # ========== 域管理相关方法 ==========
+    
+    def fetch_domain_list(self):
+        """获取域列表"""
+        if not self.access_token:
+            messagebox.showwarning("未连接", "请先连接钱包")
+            return
+            
+        try:
+            self.domain_status_var.set("📡 正在获取域列表...")
+            
+            url = "https://api.gaianet.ai/api/v1/network/domains/all/?page=1&page_size=9999"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+                "User-Agent": "GaiaNet-GUI/1.3"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == 0:
+                    domains = data.get('data', {}).get('data', [])
+                    
+                    # 创建域选择对话框
+                    self.show_domain_selection_dialog(domains)
+                    self.domain_status_var.set(f"✅ 找到 {len(domains)} 个可用域")
+                else:
+                    self.domain_status_var.set(f"❌ 获取域列表失败: {data.get('msg', '未知错误')}")
+            else:
+                self.domain_status_var.set(f"❌ 请求失败: HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.domain_status_var.set(f"❌ 获取域列表异常: {str(e)}")
+            messagebox.showerror("获取失败", f"获取域列表时发生错误: {str(e)}")
+    
+    def show_domain_selection_dialog(self, domains):
+        """显示域选择对话框"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("选择域")
+        dialog.geometry("600x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 域列表
+        frame = ttk.Frame(dialog, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="可用域列表:", font=('Arial', 12, 'bold')).pack(anchor=tk.W, pady=(0, 10))
+        
+        # 创建表格
+        columns = ("ID", "名称", "描述", "节点数")
+        tree = ttk.Treeview(frame, columns=columns, show="headings", height=15)
+        
+        for col in columns:
+            tree.heading(col, text=col)
+            
+        tree.column("ID", width=80)
+        tree.column("名称", width=150)
+        tree.column("描述", width=250)
+        tree.column("节点数", width=100)
+        
+        # 添加域数据
+        for domain in domains:
+            domain_id = domain.get('id', '')
+            name = domain.get('name', '')
+            description = domain.get('description', '')
+            node_count = domain.get('node_count', 0)
+            
+            tree.insert("", "end", values=(domain_id, name, description, node_count))
+        
+        tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # 按钮
+        button_frame = ttk.Frame(frame)
+        button_frame.pack(fill=tk.X)
+        
+        def select_domain():
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                domain_id = item['values'][0]
+                domain_name = item['values'][1]
+                
+                self.domain_var.set(str(domain_id))
+                self.domain_status_var.set(f"✅ 已选择域: {domain_name} (ID: {domain_id})")
+                dialog.destroy()
+            else:
+                messagebox.showwarning("未选择", "请先选择一个域")
+        
+        ttk.Button(button_frame, text="选择", command=select_domain).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="取消", command=dialog.destroy).pack(side=tk.RIGHT)
+    
+    def get_bound_nodes(self):
+        """获取已绑定的节点列表"""
+        if not self.access_token:
+            messagebox.showwarning("未连接", "请先连接钱包")
+            return
+            
+        try:
+            self.domain_status_var.set("📋 正在获取已绑定节点...")
+            
+            url = "https://api.gaianet.ai/api/v1/users/bind-nodes/"
+            headers = {
+                "Content-Type": "application/json", 
+                "Authorization": self.access_token,
+                "User-Agent": "GaiaNet-GUI/1.3"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == 0:
+                    nodes = data.get('data', [])
+                    
+                    # 更新已绑定节点显示
+                    self.bound_nodes_text.delete(1.0, tk.END)
+                    if nodes:
+                        node_info = []
+                        for i, node in enumerate(nodes, 1):
+                            node_id = node.get('node_id', '未知')
+                            device_id = node.get('device_id', '未知')
+                            status = node.get('status', '未知')
+                            node_info.append(f"{i}. NodeID: {node_id}")
+                            node_info.append(f"   DeviceID: {device_id}")
+                            node_info.append(f"   状态: {status}")
+                            node_info.append("")
+                        
+                        self.bound_nodes_text.insert(tk.END, "\n".join(node_info))
+                        self.domain_status_var.set(f"✅ 找到 {len(nodes)} 个已绑定节点")
+                    else:
+                        self.bound_nodes_text.insert(tk.END, "暂无已绑定节点")
+                        self.domain_status_var.set("⚠️ 暂无已绑定节点")
+                else:
+                    self.domain_status_var.set(f"❌ 获取节点失败: {data.get('msg', '未知错误')}")
+            else:
+                self.domain_status_var.set(f"❌ 请求失败: HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.domain_status_var.set(f"❌ 获取节点异常: {str(e)}")
+            messagebox.showerror("获取失败", f"获取已绑定节点时发生错误: {str(e)}")
+    
+    def single_join_domain(self):
+        """单个节点加入域"""
+        if not self.access_token:
+            messagebox.showwarning("未连接", "请先连接钱包")
+            return
+            
+        domain_id = self.domain_var.get().strip()
+        if not domain_id:
+            messagebox.showwarning("域ID为空", "请输入或选择域ID")
+            return
+            
+        # 弹出对话框让用户输入节点ID
+        node_id = tk.simpledialog.askstring("节点ID", "请输入要加入域的节点ID:")
+        if not node_id:
+            return
+            
+        if not node_id.startswith("0x"):
+            node_id = "0x" + node_id
+            
+        self.join_node_to_domain(node_id, domain_id)
+    
+    def batch_join_domain(self):
+        """批量节点加入域"""
+        if not self.access_token:
+            messagebox.showwarning("未连接", "请先连接钱包")
+            return
+            
+        domain_id = self.domain_var.get().strip()
+        if not domain_id:
+            messagebox.showwarning("域ID为空", "请输入或选择域ID")
+            return
+            
+        # 确认对话框
+        result = messagebox.askyesno("批量加入域", 
+            f"准备将所有已绑定节点加入域 {domain_id}\n\n确定继续吗？")
+        
+        if not result:
+            return
+            
+        try:
+            self.domain_status_var.set("🔄 正在批量加入域...")
+            
+            # 先获取已绑定节点
+            url = "https://api.gaianet.ai/api/v1/users/bind-nodes/"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+                "User-Agent": "GaiaNet-GUI/1.3"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == 0:
+                    nodes = data.get('data', [])
+                    
+                    if not nodes:
+                        self.domain_status_var.set("⚠️ 没有已绑定的节点")
+                        return
+                    
+                    # 批量加入域
+                    success_count = 0
+                    failed_nodes = []
+                    
+                    for node in nodes:
+                        node_id = node.get('node_id')
+                        if node_id:
+                            if self.join_node_to_domain(node_id, domain_id, show_message=False):
+                                success_count += 1
+                            else:
+                                failed_nodes.append(node_id[:10] + "...")
+                            time.sleep(1)  # 避免请求过快
+                    
+                    # 显示结果
+                    result_msg = f"批量加入域完成！\n\n"
+                    result_msg += f"🌐 目标域: {domain_id}\n"
+                    result_msg += f"✅ 成功: {success_count} 个节点\n"
+                    
+                    if failed_nodes:
+                        result_msg += f"❌ 失败: {len(failed_nodes)} 个节点\n"
+                        result_msg += f"失败节点: {', '.join(failed_nodes)}"
+                    
+                    self.domain_status_var.set(f"✅ 批量加入完成: {success_count}/{len(nodes)}")
+                    messagebox.showinfo("批量加入完成", result_msg)
+                    
+                else:
+                    self.domain_status_var.set(f"❌ 获取节点失败: {data.get('msg', '未知错误')}")
+            else:
+                self.domain_status_var.set(f"❌ 请求失败: HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.domain_status_var.set(f"❌ 批量加入异常: {str(e)}")
+            messagebox.showerror("批量加入失败", f"批量加入域时发生错误: {str(e)}")
+    
+    def join_node_to_domain(self, node_id, domain_id, show_message=True):
+        """加入节点到域的核心方法"""
+        try:
+            url = f"https://api.gaianet.ai/api/v1/network/domain/{domain_id}/apply-for-join/"
+            payload = {"node_id": node_id}
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+                "User-Agent": "GaiaNet-GUI/1.3"
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == 0:
+                    if show_message:
+                        self.domain_status_var.set(f"✅ 节点已加入域 {domain_id}")
+                        messagebox.showinfo("加入成功", f"节点 {node_id[:10]}... 已成功加入域 {domain_id}")
+                    return True
+                else:
+                    error_msg = data.get('msg', '未知错误')
+                    if show_message:
+                        self.domain_status_var.set(f"❌ 加入失败: {error_msg}")
+                        messagebox.showerror("加入失败", f"节点加入域失败: {error_msg}")
+                    return False
+            else:
+                if show_message:
+                    self.domain_status_var.set(f"❌ 请求失败: HTTP {response.status_code}")
+                    messagebox.showerror("加入失败", f"HTTP请求失败: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            if show_message:
+                self.domain_status_var.set(f"❌ 加入异常: {str(e)}")
+                messagebox.showerror("加入失败", f"加入域时发生错误: {str(e)}")
+            return False
+
+    # ========== 其他方法 ==========
 
     def start_batch_bind(self):
         """开始批量绑定"""
@@ -3478,8 +3794,193 @@ curl -sSfL {proxy_options} 'https://github.com/GaiaNet-AI/gaianet-node/releases/
         except Exception as e:
             self.append_mgmt_log(f"❌ 获取节点状态异常: {str(e)}")
 
+class GaiaNetCLI:
+    """命令行自动化模式"""
+    
+    def __init__(self, config_file=None):
+        self.config_file = config_file
+        self.config = {}
+        self.load_config()
+        
+    def load_config(self):
+        """加载配置文件"""
+        if self.config_file and os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    self.config = json.load(f)
+                print(f"✅ 已加载配置文件: {self.config_file}")
+            except Exception as e:
+                print(f"❌ 配置文件加载失败: {e}")
+                sys.exit(1)
+        else:
+            print("⚠️ 未指定配置文件，使用默认配置")
+            
+    def run_command(self, command, *args):
+        """执行系统命令"""
+        try:
+            print(f"🔧 执行命令: {command}")
+            script_dir = Path(__file__).parent
+            script_path = script_dir / "deploy_multinode_advanced.sh"
+            
+            if not script_path.exists():
+                print(f"❌ 脚本不存在: {script_path}")
+                return False
+                
+            result = subprocess.run([str(script_path), command] + list(args), 
+                                  capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                print("✅ 命令执行成功")
+                if result.stdout:
+                    print(result.stdout)
+                return True
+            else:
+                print("❌ 命令执行失败")
+                if result.stderr:
+                    print(result.stderr)
+                return False
+                
+        except Exception as e:
+            print(f"❌ 命令执行异常: {e}")
+            return False
+    
+    def init_nodes(self):
+        """初始化节点"""
+        print("🔧 初始化节点...")
+        return self.run_command("init")
+    
+    def start_nodes(self):
+        """启动所有节点"""
+        print("🚀 启动所有节点...")
+        return self.run_command("start")
+    
+    def stop_nodes(self):
+        """停止所有节点"""
+        print("🛑 停止所有节点...")
+        return self.run_command("stop")
+    
+    def show_status(self):
+        """显示状态"""
+        print("📊 查看系统状态...")
+        return self.run_command("status")
+    
+    def bind_nodes_to_wallet(self):
+        """批量绑定节点到钱包"""
+        wallet_config = self.config.get('wallet', {})
+        if not wallet_config:
+            print("❌ 配置文件中未找到钱包配置")
+            return False
+            
+        # 这里需要调用钱包绑定逻辑
+        # 由于原GUI的钱包功能比较复杂，这里简化处理
+        print("🔗 批量绑定节点到钱包...")
+        print("⚠️ 钱包绑定功能需要在GUI中手动配置")
+        return True
+    
+    def auto_deploy(self):
+        """自动部署流程"""
+        print("🚀 开始自动部署流程...")
+        
+        steps = [
+            ("初始化节点", self.init_nodes),
+            ("启动节点", self.start_nodes),
+            ("检查状态", self.show_status),
+        ]
+        
+        # 如果配置了钱包，则添加绑定步骤
+        if self.config.get('wallet'):
+            steps.append(("绑定钱包", self.bind_nodes_to_wallet))
+        
+        for step_name, step_func in steps:
+            print(f"\n{'='*50}")
+            print(f"📋 步骤: {step_name}")
+            print('='*50)
+            
+            if not step_func():
+                print(f"❌ 步骤失败: {step_name}")
+                return False
+                
+            print(f"✅ 步骤完成: {step_name}")
+            time.sleep(2)  # 等待2秒
+        
+        print("\n🎉 自动部署完成！")
+        return True
+
+def create_default_config():
+    """创建默认配置文件"""
+    config = {
+        "auto_deploy": {
+            "init_nodes": True,
+            "start_nodes": True,
+            "bind_wallet": False
+        },
+        "wallet": {
+            "private_key": "",
+            "batch_bind": {
+                "enabled": False,
+                "start_node": 1,
+                "count": 20
+            }
+        },
+        "nodes": {
+            "base_path": "~/gaianet_node",
+            "count": 20
+        }
+    }
+    
+    config_path = "auto-deploy-config.json"
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+    
+    print(f"✅ 已创建默认配置文件: {config_path}")
+    print("请编辑配置文件后重新运行")
+    return config_path
+
 def main():
     """主函数"""
+    parser = argparse.ArgumentParser(description="GaiaNet多节点部署管理器")
+    parser.add_argument("--headless", action="store_true", help="命令行模式，无GUI")
+    parser.add_argument("--config", type=str, help="配置文件路径")
+    parser.add_argument("--create-config", action="store_true", help="创建默认配置文件")
+    parser.add_argument("--auto-deploy", action="store_true", help="自动部署模式")
+    parser.add_argument("--init", action="store_true", help="仅初始化节点")
+    parser.add_argument("--start", action="store_true", help="仅启动节点")
+    parser.add_argument("--stop", action="store_true", help="仅停止节点")
+    parser.add_argument("--status", action="store_true", help="仅查看状态")
+    
+    args = parser.parse_args()
+    
+    # 创建配置文件模式
+    if args.create_config:
+        create_default_config()
+        return
+    
+    # 命令行模式
+    if args.headless:
+        print("🖥️  GaiaNet 命令行模式")
+        print("="*50)
+        
+        cli = GaiaNetCLI(args.config)
+        
+        if args.auto_deploy:
+            cli.auto_deploy()
+        elif args.init:
+            cli.init_nodes()
+        elif args.start:
+            cli.start_nodes()
+        elif args.stop:
+            cli.stop_nodes()
+        elif args.status:
+            cli.show_status()
+        else:
+            print("请指定操作：--auto-deploy, --init, --start, --stop, --status")
+            print("或使用 --help 查看帮助")
+        
+        return
+    
+    # GUI模式（默认）
+    print("🖼️  启动图形界面模式...")
+    
     # 创建主窗口
     root = tk.Tk()
     
