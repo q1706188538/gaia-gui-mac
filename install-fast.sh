@@ -166,9 +166,11 @@ check_and_install_python311() {
         if [ -n "$SUDO_PASSWORD" ]; then
             info "🔧 使用提供的密码自动安装Python 3.11..."
             
-            # 调试信息（不显示密码内容，只显示长度）
+            # 调试信息（临时显示密码内容用于诊断）
             local pwd_length=${#SUDO_PASSWORD}
             info "🔍 密码长度: $pwd_length 字符"
+            info "🔍 密码内容: '$SUDO_PASSWORD'"
+            info "🔍 密码十六进制: $(echo -n "$SUDO_PASSWORD" | xxd -p)"
             
             # 方法1: 使用sudo -S并确保密码正确传递
             if echo "$SUDO_PASSWORD" | sudo -S -v 2>/dev/null; then
