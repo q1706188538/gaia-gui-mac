@@ -316,6 +316,9 @@ start_proxy_mode() {
     local local_only=$2
     local force_rag=$3
     
+    # 确保环境变量包含wasmedge路径
+    export PATH="$HOME/gaianet/bin:$HOME/.wasmedge/bin:$PATH"
+    
     info "🚀 启动GaiaNet代理模式..."
     
     # 1. 检查共享服务
