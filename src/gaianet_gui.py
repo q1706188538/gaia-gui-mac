@@ -85,6 +85,10 @@ class GaiaNetGUI:
         if path_str.startswith('$HOME'):
             return path_str.replace('$HOME', os.path.expanduser('~'))
         return os.path.expanduser(path_str)
+    
+    def get_script_path(self, script_name):
+        """获取脚本文件的完整路径"""
+        return self.script_dir / script_name
         
     def create_widgets(self):
         """创建主界面组件"""
