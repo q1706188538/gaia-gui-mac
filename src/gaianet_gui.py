@@ -4297,6 +4297,7 @@ class GaiaNetCLI:
                     break
             
             if not node_path:
+                print(f"   ❌ 未找到节点 {node_name} 的路径")
                 return None
             
             # 读取 nodeid.json
@@ -4582,6 +4583,8 @@ class GaiaNetCLI:
         success_count = 0
         failed_nodes = []
         
+        print(f"🔄 开始绑定循环，总共 {count} 个节点，起始节点: {start_node}")
+        
         for i in range(count):
             current_node = start_node + i
             node_name = f"node_{current_node}"
@@ -4595,6 +4598,7 @@ class GaiaNetCLI:
                 print(f"   找到节点信息: NodeID={node_id[:10]}..., DeviceID={device_id}")
                 
                 # 尝试绑定
+                print(f"   🔗 开始绑定节点 {node_name}...")
                 if self.bind_single_node(node_id, device_id, node_name):
                     success_count += 1
                     print(f"   ✅ 节点 {node_name} 绑定成功")
