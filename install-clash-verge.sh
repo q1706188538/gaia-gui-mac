@@ -386,34 +386,273 @@ select_node() {
         return 0
     fi
     
-    info "🎯 搜索节点: $SELECTED_NODE"
+    info "🎯 准备节点选择功能..."
     
-    # 这里需要启动 Clash Verge 后通过 API 设置节点
-    # 由于需要应用运行，我们创建一个延迟执行的脚本
+    # 创建节点选择和管理脚本
+    cat > "/tmp/clash_node_manager.sh" << 'EOF'
+#!/bin/bash
+
+# 颜色定义
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+info() { printf "${GREEN}[INFO]${NC} $1\n"; }
+warning() { printf "${YELLOW}[WARNING]${NC} $1\n"; }
+error() { printf "${RED}[ERROR]${NC} $1\n"; }
+highlight() { printf "${BLUE}[SELECT]${NC} $1\n"; }
+
+# 等待 Clash API 可用
+wait_for_clash_api() {
+    local max_attempts=30
+    local attempt=0
+    
+    info "⏳ 等待 Clash API 启动..."
+    while [[ $attempt -lt $max_attempts ]]; do
+        if curl -s http://127.0.0.1:9090/configs >/dev/null 2>&1; then
+            info "✅ Clash API 已就绪"
+            return 0
+        fi
+        sleep 2
+        ((attempt++))
+        echo -n "."
+    done
+    echo
+    error "❌ 无法连接到 Clash API，请确保 Clash Verge 正在运行"
+    return 1
+}
+
+# 获取所有代理节点
+get_all_proxies() {
+    local proxies_json=$(curl -s http://127.0.0.1:9090/proxies 2>/dev/null)
+    if [[ -z "$proxies_json" ]]; then
+        error "❌ 无法获取代理列表"
+        return 1
+    fi
+    
+    # 解析并显示所有可用节点
+    echo "$proxies_json" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    proxies = data.get('proxies', {})
+    
+    print('📋 可用代理组和节点:')
+    print('=' * 50)
+    
+    groups = {}
+    nodes = {}
+    
+    for name, proxy in proxies.items():
+        proxy_type = proxy.get('type', 'unknown')
+        if proxy_type in ['Selector', 'URLTest', 'Fallback', 'LoadBalance']:
+            groups[name] = proxy
+        elif proxy_type in ['Shadowsocks', 'VMess', 'Trojan', 'Vless', 'Hysteria', 'Hysteria2']:
+            nodes[name] = proxy
+    
+    # 显示代理组
+    if groups:
+        print('🔄 代理组:')
+        for name, group in groups.items():
+            current = group.get('now', 'unknown')
+            all_proxies = group.get('all', [])
+            print(f'  • {name} (当前: {current}) - 可选节点数: {len(all_proxies)}')
+        print()
+    
+    # 显示前20个节点作为示例
+    if nodes:
+        print('🌍 节点列表 (显示前20个):')
+        count = 0
+        for name, node in nodes.items():
+            if count >= 20:
+                break
+            delay = node.get('history', [])
+            delay_str = f'{delay[-1].get(\"delay\", \"N/A\")}ms' if delay else 'N/A'
+            print(f'  {count+1:2d}. {name} ({delay_str})')
+            count += 1
+        
+        if len(nodes) > 20:
+            print(f'     ... 还有 {len(nodes) - 20} 个节点')
+    
+except Exception as e:
+    print(f'解析错误: {e}')
+"
+}
+
+# 搜索匹配的节点
+search_nodes() {
+    local search_term="$1"
+    local proxies_json=$(curl -s http://127.0.0.1:9090/proxies 2>/dev/null)
+    
+    if [[ -z "$proxies_json" ]]; then
+        error "❌ 无法获取代理列表"
+        return 1
+    fi
+    
+    echo "$proxies_json" | python3 -c "
+import json, sys, re
+
+try:
+    data = json.load(sys.stdin)
+    proxies = data.get('proxies', {})
+    search_term = '${search_term}'
+    
+    print(f'🔍 搜索包含 \"{search_term}\" 的节点:')
+    print('=' * 50)
+    
+    matches = []
+    for name, proxy in proxies.items():
+        proxy_type = proxy.get('type', 'unknown')
+        if proxy_type in ['Shadowsocks', 'VMess', 'Trojan', 'Vless', 'Hysteria', 'Hysteria2']:
+            if re.search(search_term, name, re.IGNORECASE):
+                delay = proxy.get('history', [])
+                delay_str = f'{delay[-1].get(\"delay\", \"N/A\")}ms' if delay else 'N/A'
+                matches.append((name, delay_str))
+    
+    if matches:
+        for i, (name, delay) in enumerate(matches, 1):
+            print(f'  {i:2d}. {name} ({delay})')
+        print(f'\\n找到 {len(matches)} 个匹配的节点')
+        
+        # 返回第一个匹配的节点名称
+        if matches:
+            print(f'BEST_MATCH:{matches[0][0]}')
+    else:
+        print('❌ 未找到匹配的节点')
+        print('\\n💡 建议:')
+        print('  • 尝试使用更短的关键词，如: HK, 香港, US, 日本')
+        print('  • 检查订阅是否正确导入')
+        print('  • 等待节点列表刷新')
+        
+except Exception as e:
+    print(f'搜索错误: {e}')
+"
+}
+
+# 切换到指定节点
+switch_to_node() {
+    local node_name="$1"
+    local proxy_group="${2:-PROXY}"
+    
+    info "🔄 切换到节点: $node_name"
+    
+    # 尝试设置节点
+    local result=$(curl -s -X PUT "http://127.0.0.1:9090/proxies/$proxy_group" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"$node_name\"}" \
+        -w "%{http_code}")
+    
+    local http_code="${result: -3}"
+    
+    if [[ "$http_code" == "204" ]]; then
+        info "✅ 节点切换成功: $node_name"
+        
+        # 验证切换结果
+        sleep 1
+        local current_node=$(curl -s "http://127.0.0.1:9090/proxies/$proxy_group" | \
+            python3 -c "import json, sys; data=json.load(sys.stdin); print(data.get('now', 'unknown'))" 2>/dev/null)
+        
+        if [[ "$current_node" == "$node_name" ]]; then
+            highlight "🎯 当前使用节点: $current_node"
+        fi
+        return 0
+    else
+        error "❌ 节点切换失败 (HTTP: $http_code)"
+        warning "💡 尝试其他代理组..."
+        
+        # 尝试其他常见的代理组名称
+        for group in "♻️ 自动选择" "🚀 节点选择" "Proxy" "🌍 节点选择" "节点选择"; do
+            result=$(curl -s -X PUT "http://127.0.0.1:9090/proxies/$group" \
+                -H "Content-Type: application/json" \
+                -d "{\"name\":\"$node_name\"}" \
+                -w "%{http_code}" 2>/dev/null)
+            
+            http_code="${result: -3}"
+            if [[ "$http_code" == "204" ]]; then
+                info "✅ 通过代理组 '$group' 切换成功"
+                return 0
+            fi
+        done
+        
+        error "❌ 所有代理组都切换失败"
+        return 1
+    fi
+}
+
+# 测试节点延迟
+test_node_delay() {
+    local node_name="$1"
+    info "📡 测试节点延迟: $node_name"
+    
+    # 获取节点延迟信息
+    local delay_info=$(curl -s "http://127.0.0.1:9090/proxies/$node_name" | \
+        python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    history = data.get('history', [])
+    if history:
+        latest = history[-1]
+        delay = latest.get('delay', 0)
+        time = latest.get('time', '')
+        if delay > 0:
+            print(f'延迟: {delay}ms')
+        else:
+            print('延迟: 超时或不可用')
+    else:
+        print('延迟: 未测试')
+except:
+    print('延迟: 获取失败')
+")
+    
+    echo "  $delay_info"
+}
+
+# 主要的节点选择逻辑
+main() {
+    local search_term="$1"
+    
+    if ! wait_for_clash_api; then
+        exit 1
+    fi
+    
+    if [[ -z "$search_term" ]]; then
+        # 如果没有搜索词，显示所有节点
+        get_all_proxies
+    else
+        # 搜索并选择节点
+        highlight "正在搜索和选择最佳节点..."
+        local search_result=$(search_nodes "$search_term")
+        echo "$search_result"
+        
+        # 提取最佳匹配的节点名称
+        local best_match=$(echo "$search_result" | grep "BEST_MATCH:" | cut -d: -f2-)
+        
+        if [[ -n "$best_match" ]]; then
+            switch_to_node "$best_match"
+            test_node_delay "$best_match"
+        fi
+    fi
+}
+
+# 运行主函数
+main "$@"
+EOF
+    
+    chmod +x "/tmp/clash_node_manager.sh"
+    
+    # 创建启动后的节点选择任务
     cat > "/tmp/clash_select_node.sh" << EOF
 #!/bin/bash
-sleep 5  # 等待应用启动
+sleep 8  # 等待应用完全启动
 
-# 通过 API 获取可用节点
-proxies=\$(curl -s http://127.0.0.1:9090/proxies 2>/dev/null)
-if [[ -n "\$proxies" ]]; then
-    echo "🔍 正在搜索包含 '$SELECTED_NODE' 的节点..."
-    
-    # 这里可以解析 JSON 并选择匹配的节点
-    # 简化版本：设置为指定的代理组
-    curl -X PUT http://127.0.0.1:9090/proxies/PROXY \\
-         -H "Content-Type: application/json" \\
-         -d '{"name":"'$SELECTED_NODE'"}' 2>/dev/null
-    
-    if [[ \$? -eq 0 ]]; then
-        echo "✅ 节点已设置: $SELECTED_NODE"
-    else
-        echo "❌ 节点设置失败，请手动在应用中选择"
-    fi
-else
-    echo "❌ 无法连接到 Clash API，请手动选择节点"
-fi
+echo "🎯 开始节点选择流程..."
+/tmp/clash_node_manager.sh "$SELECTED_NODE"
 
+# 清理临时文件
+rm -f "/tmp/clash_node_manager.sh"
 rm -f "/tmp/clash_select_node.sh"
 EOF
     
