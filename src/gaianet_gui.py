@@ -4274,19 +4274,26 @@ class GaiaNetCLI:
             # 可能的节点路径 - 支持多种命名格式
             possible_paths = [
                 # 标准格式: gaianet_node1, gaianet_node2 等
-                os.path.expanduser(f"~/gaianet_{node_name}"),
-                # 带下划线格式: gaianet_node_1, gaianet_node_2 等  
-                os.path.expanduser(f"~/gaianet_{node_name.replace('_', '')}"),
-                # 如果输入是node_1格式，尝试转换为node1然后查找gaianet_node1
                 os.path.expanduser(f"~/gaianet_{node_name.replace('node_', 'node')}"),
+                # 直接使用节点数字: gaianet_node1 当输入为 node_1
+                os.path.expanduser(f"~/gaianet_node{node_name.replace('node_', '')}"),
+                # 带下划线格式: gaianet_node_1, gaianet_node_2 等  
+                # 如果输入是node_1格式，尝试转换为node1然后查找gaianet_node1
+                os.path.expanduser(f"~/gaianet_{node_name}"),
                 # 直接使用原始名称
                 os.path.expanduser(f"~/{node_name}"),
             ]
+            
+            print(f"   尝试查找节点路径:")
+            for i, path in enumerate(possible_paths):
+                exists = os.path.exists(path)
+                print(f"     {i+1}. {path} -> {'存在' if exists else '不存在'}")
             
             node_path = None
             for path in possible_paths:
                 if os.path.exists(path):
                     node_path = path
+                    print(f"   使用节点路径: {node_path}")
                     break
             
             if not node_path:
@@ -4353,6 +4360,7 @@ class GaiaNetCLI:
             
             headers = {
                 "Content-Type": "application/json",
+                "Authorization": self.access_token,
                 "User-Agent": "GaiaNet-GUI/1.2"
             }
             
