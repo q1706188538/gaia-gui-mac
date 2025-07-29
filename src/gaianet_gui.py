@@ -4324,6 +4324,10 @@ class GaiaNetCLI:
             import requests
             from eth_account.messages import encode_defunct
             
+            print(f"🔗 开始绑定节点 {node_name}...")
+            print(f"   NodeID: {node_id}")
+            print(f"   DeviceID: {device_id}")
+            
             # 创建签名消息
             message_data = {
                 "node_id": node_id,
@@ -4332,8 +4336,12 @@ class GaiaNetCLI:
             
             # 对消息进行签名
             message_text = json.dumps(message_data, separators=(',', ':'))
+            print(f"   签名消息: {message_text}")
+            
             message_hash = encode_defunct(text=message_text)
             signature = self.wallet_account.sign_message(message_hash)
+            
+            print(f"   签名结果: {signature.signature.hex()[:20]}...")
             
             # 发送绑定请求
             url = "https://api.gaianet.ai/api/v1/users/bind-node/"
@@ -4348,21 +4356,40 @@ class GaiaNetCLI:
                 "User-Agent": "GaiaNet-GUI/1.2"
             }
             
+            print(f"📡 发送绑定请求:")
+            print(f"   URL: {url}")
+            print(f"   Headers: {headers}")
+            print(f"   Payload: {json.dumps(payload, indent=2)}")
+            
             response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            print(f"📥 收到响应:")
+            print(f"   状态码: {response.status_code}")
+            print(f"   响应头: {dict(response.headers)}")
+            print(f"   响应体: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 if data.get("code") == 0:
+                    print(f"   ✅ 节点 {node_name} 绑定成功")
                     return True
                 else:
-                    print(f"   API返回错误: {data.get('message', '未知错误')}")
+                    print(f"   ❌ API返回错误: {data.get('message', '未知错误')}")
+                    print(f"   完整响应: {data}")
                     return False
             else:
-                print(f"   HTTP错误: {response.status_code}")
+                print(f"   ❌ HTTP错误: {response.status_code}")
+                try:
+                    error_data = response.json()
+                    print(f"   错误详情: {error_data}")
+                except:
+                    print(f"   错误响应体: {response.text}")
                 return False
                 
         except Exception as e:
-            print(f"   绑定节点 {node_name} 失败: {str(e)}")
+            print(f"   ❌ 绑定节点 {node_name} 异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
             
     def run_command(self, command, *args):
@@ -4589,6 +4616,11 @@ class GaiaNetCLI:
             import requests
             from eth_account.messages import encode_defunct
             
+            print(f"🌐 开始节点 {node_name} 加入域...")
+            print(f"   NodeID: {node_id}")
+            print(f"   DeviceID: {device_id}")
+            print(f"   DomainID: {domain_id}")
+            
             # 创建签名消息
             message_data = {
                 "node_id": node_id,
@@ -4598,8 +4630,12 @@ class GaiaNetCLI:
             
             # 对消息进行签名
             message_text = json.dumps(message_data, separators=(',', ':'))
+            print(f"   签名消息: {message_text}")
+            
             message_hash = encode_defunct(text=message_text)
             signature = self.wallet_account.sign_message(message_hash)
+            
+            print(f"   签名结果: {signature.signature.hex()[:20]}...")
             
             # 发送加入域请求
             url = "https://api.gaianet.ai/api/v1/domains/join/"
@@ -4615,21 +4651,40 @@ class GaiaNetCLI:
                 "User-Agent": "GaiaNet-GUI/1.2"
             }
             
+            print(f"📡 发送加入域请求:")
+            print(f"   URL: {url}")
+            print(f"   Headers: {headers}")
+            print(f"   Payload: {json.dumps(payload, indent=2)}")
+            
             response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            print(f"📥 收到响应:")
+            print(f"   状态码: {response.status_code}")
+            print(f"   响应头: {dict(response.headers)}")
+            print(f"   响应体: {response.text}")
             
             if response.status_code == 200:
                 data = response.json()
                 if data.get("code") == 0:
+                    print(f"   ✅ 节点 {node_name} 加入域成功")
                     return True
                 else:
-                    print(f"   API返回错误: {data.get('message', '未知错误')}")
+                    print(f"   ❌ API返回错误: {data.get('message', '未知错误')}")
+                    print(f"   完整响应: {data}")
                     return False
             else:
-                print(f"   HTTP错误: {response.status_code}")
+                print(f"   ❌ HTTP错误: {response.status_code}")
+                try:
+                    error_data = response.json()
+                    print(f"   错误详情: {error_data}")
+                except:
+                    print(f"   错误响应体: {response.text}")
                 return False
                 
         except Exception as e:
-            print(f"   节点 {node_name} 加入域失败: {str(e)}")
+            print(f"   ❌ 节点 {node_name} 加入域异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def auto_deploy(self):
