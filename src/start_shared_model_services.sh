@@ -128,6 +128,9 @@ wait_for_service() {
 start_chat_service() {
     info "[+] 启动共享Chat模型服务..."
     
+    # 确保环境变量包含wasmedge路径
+    export PATH="$HOME/gaianet/bin:$HOME/.wasmedge/bin:$PATH"
+    
     if check_port $CHAT_MODEL_PORT; then
         warning "    ❗ 端口 $CHAT_MODEL_PORT 已被占用，跳过Chat服务启动"
         return
@@ -174,6 +177,9 @@ start_chat_service() {
 # 启动共享Embedding模型服务
 start_embedding_service() {
     info "[+] 启动共享Embedding模型服务..."
+    
+    # 确保环境变量包含wasmedge路径
+    export PATH="$HOME/gaianet/bin:$HOME/.wasmedge/bin:$PATH"
     
     if check_port $EMBEDDING_MODEL_PORT; then
         warning "    ❗ 端口 $EMBEDDING_MODEL_PORT 已被占用，跳过Embedding服务启动"
