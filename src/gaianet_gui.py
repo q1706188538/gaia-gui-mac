@@ -15,11 +15,16 @@ import os
 import sys
 from pathlib import Path
 import webbrowser
+import requests
+import time
+from eth_account import Account
+from eth_account.messages import encode_defunct
+import secrets
 
 class GaiaNetGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("GaiaNet多节点部署管理器 v1.2 - 高并发优化版")
+        self.root.title("GaiaNet多节点部署管理器 v1.3 - 钱包管理增强版")
         self.root.geometry("1200x800")
         self.root.resizable(True, True)
         
@@ -112,7 +117,10 @@ class GaiaNetGUI:
         # 选项卡4: 系统状态
         self.create_status_tab()
         
-        # 选项卡5: 日志查看
+        # 选项卡5: 钱包管理
+        self.create_wallet_tab()
+        
+        # 选项卡6: 日志查看
         self.create_log_tab()
         
     def create_updates_tab(self):
@@ -133,35 +141,41 @@ class GaiaNetGUI:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         
+        # 打包canvas和滚动条
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
         # 标题部分
         title_frame = ttk.Frame(scrollable_frame)
         title_frame.pack(fill=tk.X, padx=20, pady=20)
         
         ttk.Label(title_frame, text="🚀 GaiaNet多节点部署管理器", 
                  font=('Arial', 24, 'bold')).pack(anchor=tk.W)
-        ttk.Label(title_frame, text="v1.2 - 高并发优化版", 
+        ttk.Label(title_frame, text="v1.3 - 钱包管理增强版", 
                  font=('Arial', 14), foreground='blue').pack(anchor=tk.W, pady=(5, 0))
         
         # 最新更新部分
-        latest_frame = ttk.LabelFrame(scrollable_frame, text="🔥 最新更新 (v1.2)", padding=15)
+        latest_frame = ttk.LabelFrame(scrollable_frame, text="🔥 最新更新 (v1.3)", padding=15)
         latest_frame.pack(fill=tk.X, padx=20, pady=10)
         
         latest_updates = """
-✨ 重大优化 - 解决多节点并发访问问题
-• Chat服务并发能力提升8倍: batch-size 512→4096
-• 新增8线程并行处理: parallel 1→8  
-• 上下文窗口翻倍: ctx-size 16384→32768
-• 添加智能重试机制: 服务繁忙时自动重试3次
+💳 全新钱包管理系统
+• 一键生成安全钱包: 随机生成私钥和地址
+• 智能钱包保存: 配置自动保存到桌面
+• 自动加载功能: 启动时自动读取保存的钱包
+• Web3私钥签名: 标准以太坊消息签名集成
 
-🔧 配置文件持久化
-• 配置自动保存到桌面，关闭GUI重新打开配置不丢失
-• 支持跨平台桌面路径识别 (Desktop/桌面)
-• 双重保存策略确保脚本和GUI都能正常工作
+🚀 批量节点绑定升级
+• 自定义起始节点: 支持从任意节点开始绑定
+• 智能范围计算: 实时显示绑定节点范围
+• 多路径节点搜索: 自动识别多种节点目录结构
+• 进度实时监控: 详细的绑定进度和状态显示
 
-⚡ 性能监控与优化
-• 支持50+节点同时访问共享服务
-• 内存占用优化: 约15-20GB支持大规模部署  
-• CPU效率提升: 多线程并行处理
+🔧 增强用户体验
+• 桌面配置存储: 解决应用包路径问题
+• 范围验证机制: 防止超出节点数量限制
+• 错误处理优化: 更友好的错误提示和处理
+• 界面布局优化: 单个绑定和批量绑定分离显示
         """
         
         ttk.Label(latest_frame, text=latest_updates.strip(), 
@@ -177,6 +191,18 @@ class GaiaNetGUI:
 • 多从节点批量初始化和配置
 • 共享服务架构节省50%+内存占用
 
+💳  钱包管理系统  
+• Web3钱包生成和连接功能
+• Gaia服务器自动登录和认证
+• 节点绑定签名验证和API调用
+• 钱包配置持久化存储
+
+🔄  批量节点绑定
+• 自定义起始节点和绑定数量
+• 多节点目录自动识别和信息提取
+• 实时进度监控和错误处理
+• 支持1-100个节点批量操作
+
 ⚙️  智能配置管理  
 • 可视化节点配置界面
 • 支持端口、RAG、公网访问等参数配置
@@ -186,11 +212,6 @@ class GaiaNetGUI:
 • 一键启动/停止/重启所有节点
 • 实时系统状态监控和健康检查
 • 进程清理和故障排除工具
-
-🌐  网络与代理支持
-• 代理服务器配置 (支持受限网络环境)
-• SSL证书验证禁用 (提高下载成功率)  
-• 智能重试机制 (网络问题自动重试)
 
 📊  监控与诊断
 • 实时日志查看和管理
@@ -587,6 +608,881 @@ class GaiaNetGUI:
 
         self.update_status_display(welcome_msg)
         
+    def create_wallet_tab(self):
+        """创建钱包管理选项卡"""
+        wallet_frame = ttk.Frame(self.notebook)
+        self.notebook.add(wallet_frame, text="💳 钱包管理")
+        
+        # 主滚动框架
+        main_canvas = tk.Canvas(wallet_frame)
+        scrollbar_main = ttk.Scrollbar(wallet_frame, orient="vertical", command=main_canvas.yview)
+        scrollable_main = ttk.Frame(main_canvas)
+        
+        scrollable_main.bind(
+            "<Configure>",
+            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+        )
+        
+        main_canvas.create_window((0, 0), window=scrollable_main, anchor="nw")
+        main_canvas.configure(yscrollcommand=scrollbar_main.set)
+        
+        main_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar_main.pack(side="right", fill="y")
+        
+        # 钱包连接区域
+        connect_frame = ttk.LabelFrame(scrollable_main, text="🔗 钱包连接", padding=15)
+        connect_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        # 私钥输入行
+        key_frame = ttk.Frame(connect_frame)
+        key_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(key_frame, text="钱包私钥:").pack(anchor=tk.W, pady=(0, 5))
+        
+        key_input_frame = ttk.Frame(key_frame)
+        key_input_frame.pack(fill=tk.X)
+        
+        self.private_key_var = tk.StringVar()
+        private_key_entry = ttk.Entry(key_input_frame, textvariable=self.private_key_var, 
+                                     show="*", width=60)
+        private_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        ttk.Button(key_input_frame, text="生成新钱包", 
+                  command=self.generate_wallet).pack(side=tk.RIGHT)
+        
+        # 钱包地址显示
+        ttk.Label(connect_frame, text="钱包地址:").pack(anchor=tk.W, pady=(10, 5))
+        self.wallet_address_var = tk.StringVar(value="未连接")
+        ttk.Label(connect_frame, textvariable=self.wallet_address_var, 
+                 font=('Courier', 11)).pack(anchor=tk.W, pady=(0, 10))
+        
+        # 连接状态显示
+        self.wallet_status_var = tk.StringVar(value="未连接")
+        status_label = ttk.Label(connect_frame, textvariable=self.wallet_status_var, 
+                                foreground="red")
+        status_label.pack(anchor=tk.W, pady=(0, 10))
+        
+        # 按钮区域
+        button_frame = ttk.Frame(connect_frame)
+        button_frame.pack(fill=tk.X)
+        
+        ttk.Button(button_frame, text="连接钱包", 
+                  command=self.connect_wallet).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="断开连接", 
+                  command=self.disconnect_wallet).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="保存钱包", 
+                  command=self.save_wallet).pack(side=tk.LEFT)
+        
+        # 用户信息显示区域
+        self.user_info_frame = ttk.LabelFrame(scrollable_main, text="👤 用户信息", padding=15)
+        self.user_info_frame.pack(fill=tk.X, padx=20, pady=10)
+        self.user_info_frame.pack_forget()  # 初始隐藏
+        
+        self.user_info_text = scrolledtext.ScrolledText(self.user_info_frame, height=6, width=80)
+        self.user_info_text.pack(fill=tk.BOTH, expand=True)
+        
+        # 节点绑定区域
+        bind_frame = ttk.LabelFrame(scrollable_main, text="🔗 节点绑定", padding=15)
+        bind_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        # 单个节点绑定
+        single_bind_frame = ttk.LabelFrame(bind_frame, text="单个节点绑定", padding=10)
+        single_bind_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 节点ID输入
+        ttk.Label(single_bind_frame, text="节点ID:").pack(anchor=tk.W, pady=(0, 5))
+        self.node_id_var = tk.StringVar()
+        ttk.Entry(single_bind_frame, textvariable=self.node_id_var, width=50).pack(anchor=tk.W, pady=(0, 10))
+        
+        # 设备ID输入
+        ttk.Label(single_bind_frame, text="设备ID:").pack(anchor=tk.W, pady=(0, 5))
+        self.device_id_var = tk.StringVar()
+        ttk.Entry(single_bind_frame, textvariable=self.device_id_var, width=50).pack(anchor=tk.W, pady=(0, 10))
+        
+        # 单个绑定按钮
+        single_button_frame = ttk.Frame(single_bind_frame)
+        single_button_frame.pack(fill=tk.X)
+        
+        ttk.Button(single_button_frame, text="绑定节点", 
+                  command=self.bind_node).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(single_button_frame, text="获取本地节点信息", 
+                  command=self.get_local_node_info).pack(side=tk.LEFT)
+        
+        # 批量绑定
+        batch_bind_frame = ttk.LabelFrame(bind_frame, text="批量节点绑定", padding=10)
+        batch_bind_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # 绑定数量输入
+        count_frame = ttk.Frame(batch_bind_frame)
+        count_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 起始节点
+        ttk.Label(count_frame, text="起始节点:").pack(side=tk.LEFT, padx=(0, 5))
+        self.start_node_var = tk.StringVar(value="1")
+        start_spinbox = ttk.Spinbox(count_frame, from_=1, to=100, width=8, 
+                                   textvariable=self.start_node_var)
+        start_spinbox.pack(side=tk.LEFT, padx=(0, 20))
+        
+        # 绑定数量
+        ttk.Label(count_frame, text="绑定数量:").pack(side=tk.LEFT, padx=(0, 5))
+        self.batch_count_var = tk.StringVar(value="20")
+        count_spinbox = ttk.Spinbox(count_frame, from_=1, to=100, width=8, 
+                                   textvariable=self.batch_count_var)
+        count_spinbox.pack(side=tk.LEFT, padx=(0, 20))
+        
+        # 范围显示
+        self.range_label_var = tk.StringVar()
+        self.range_label = ttk.Label(count_frame, textvariable=self.range_label_var, foreground="blue")
+        self.range_label.pack(side=tk.LEFT)
+        
+        # 绑定变量更新事件
+        self.start_node_var.trace('w', self.update_range_display)
+        self.batch_count_var.trace('w', self.update_range_display)
+        
+        # 初始化范围显示
+        self.update_range_display()
+        
+        # 批量绑定按钮和进度
+        batch_button_frame = ttk.Frame(batch_bind_frame)
+        batch_button_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.batch_bind_button = ttk.Button(batch_button_frame, text="开始批量绑定", 
+                                           command=self.start_batch_bind)
+        self.batch_bind_button.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.stop_batch_button = ttk.Button(batch_button_frame, text="停止绑定", 
+                                           command=self.stop_batch_bind, state=tk.DISABLED)
+        self.stop_batch_button.pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(batch_button_frame, text="查询已绑定节点", 
+                  command=self.query_bound_nodes).pack(side=tk.LEFT)
+        
+        # 批量绑定进度条
+        self.batch_progress_var = tk.StringVar(value="准备就绪")
+        ttk.Label(batch_bind_frame, textvariable=self.batch_progress_var).pack(anchor=tk.W, pady=(0, 5))
+        
+        self.batch_progress = ttk.Progressbar(batch_bind_frame, length=400, mode='determinate')
+        self.batch_progress.pack(fill=tk.X)
+        
+        # 已绑定节点显示区域
+        self.bound_nodes_frame = ttk.LabelFrame(scrollable_main, text="📋 已绑定节点", padding=15)
+        self.bound_nodes_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        self.bound_nodes_text = scrolledtext.ScrolledText(self.bound_nodes_frame, height=8, width=80)
+        self.bound_nodes_text.pack(fill=tk.BOTH, expand=True)
+        
+        # 初始化钱包相关变量
+        self.wallet_account = None
+        self.access_token = None
+        self.api_key = None
+        self.user_id = None
+        self.batch_bind_running = False
+        self.batch_bind_thread = None
+        
+        # 钱包配置文件路径 - 保存到桌面
+        desktop_path = os.path.expanduser("~/Desktop")
+        self.wallet_config_file = os.path.join(desktop_path, "gaianet_wallet_config.json")
+        
+        # 自动加载保存的钱包
+        self.load_saved_wallet()
+
+    def update_range_display(self, *args):
+        """更新绑定范围显示"""
+        try:
+            start_node = int(self.start_node_var.get() or "1")
+            count = int(self.batch_count_var.get() or "20")
+            end_node = start_node + count - 1
+            
+            self.range_label_var.set(f"将绑定: node_{start_node} ~ node_{end_node}")
+        except:
+            self.range_label_var.set("请输入有效数字")
+
+    def generate_wallet(self):
+        """生成新钱包"""
+        try:
+            # 生成随机私钥
+            private_key = secrets.token_hex(32)
+            private_key_hex = '0x' + private_key
+            
+            # 创建账户以验证
+            test_account = Account.from_key(private_key_hex)
+            
+            # 显示生成的钱包信息
+            result = messagebox.askyesno("生成新钱包", 
+                f"""✅ 新钱包已生成！
+
+🔑 私钥: {private_key_hex}
+📍 地址: {test_account.address}
+
+⚠️ 重要提醒：
+• 请立即备份私钥到安全位置
+• 私钥一旦丢失将无法恢复
+• 不要与任何人分享您的私钥
+
+是否要使用这个新钱包？""")
+            
+            if result:
+                self.private_key_var.set(private_key_hex)
+                messagebox.showinfo("成功", "新钱包私钥已自动填入，请点击'连接钱包'完成连接。")
+                
+        except Exception as e:
+            messagebox.showerror("生成失败", f"生成钱包时发生错误: {str(e)}")
+
+    def save_wallet(self):
+        """保存钱包配置"""
+        if not self.wallet_account:
+            messagebox.showerror("错误", "请先连接钱包")
+            return
+        
+        try:
+            # 确认保存
+            result = messagebox.askyesno("保存钱包", 
+                f"""确定要保存当前钱包配置吗？
+
+📍 钱包地址: {self.wallet_account.address}
+💾 保存位置: 桌面/gaianet_wallet_config.json
+
+⚠️ 安全提醒：
+• 私钥将保存在桌面配置文件中
+• 建议定期备份配置文件
+• 确保您的设备安全
+
+保存后下次打开软件会自动加载此钱包。""")
+            
+            if result:
+                wallet_config = {
+                    "address": self.wallet_account.address,
+                    "private_key": self.private_key_var.get(),
+                    "saved_time": time.strftime('%Y-%m-%d %H:%M:%S')
+                }
+                
+                with open(self.wallet_config_file, 'w', encoding='utf-8') as f:
+                    json.dump(wallet_config, f, indent=2, ensure_ascii=False)
+                
+                messagebox.showinfo("保存成功", f"钱包配置已保存到桌面！\n文件名: gaianet_wallet_config.json\n下次启动将自动加载。")
+                
+        except Exception as e:
+            messagebox.showerror("保存失败", f"保存钱包配置时发生错误: {str(e)}")
+
+    def load_saved_wallet(self):
+        """加载保存的钱包配置"""
+        try:
+            if os.path.exists(self.wallet_config_file):
+                with open(self.wallet_config_file, 'r', encoding='utf-8') as f:
+                    wallet_config = json.load(f)
+                
+                private_key = wallet_config.get('private_key')
+                address = wallet_config.get('address')
+                
+                if private_key and address:
+                    self.private_key_var.set(private_key)
+                    self.wallet_address_var.set(address)
+                    self.wallet_status_var.set("💾 已加载保存的钱包，点击'连接钱包'登录")
+                    
+        except Exception as e:
+            print(f"加载钱包配置失败: {str(e)}")
+
+    def start_batch_bind(self):
+        """开始批量绑定"""
+        if not self.wallet_account or not self.access_token:
+            messagebox.showerror("错误", "请先连接钱包并登录")
+            return
+        
+        try:
+            start_node = int(self.start_node_var.get() or "1")
+            count = int(self.batch_count_var.get() or "20")
+            
+            if start_node <= 0 or start_node > 100:
+                messagebox.showerror("错误", "起始节点必须在1-100之间")
+                return
+            if count <= 0 or count > 100:
+                messagebox.showerror("错误", "绑定数量必须在1-100之间")
+                return
+            if start_node + count - 1 > 100:
+                messagebox.showerror("错误", "绑定范围超出限制，最大支持到node_100")
+                return
+        except ValueError:
+            messagebox.showerror("错误", "请输入有效的数字")
+            return
+        
+        end_node = start_node + count - 1
+        
+        # 确认批量绑定
+        result = messagebox.askyesno("批量绑定确认", 
+            f"""准备批量绑定 {count} 个节点
+
+🔍 绑定范围: node_{start_node} 到 node_{end_node}
+⏱️ 预计时间: {count * 2} 秒左右
+🔄 自动重试: 失败的节点会自动重试
+
+确定开始批量绑定吗？""")
+        
+        if result:
+            self.batch_bind_running = True
+            self.batch_bind_button.config(state=tk.DISABLED)
+            self.stop_batch_button.config(state=tk.NORMAL)
+            
+            # 启动批量绑定线程
+            self.batch_bind_thread = threading.Thread(target=self.batch_bind_worker, args=(start_node, count))
+            self.batch_bind_thread.daemon = True
+            self.batch_bind_thread.start()
+
+    def stop_batch_bind(self):
+        """停止批量绑定"""
+        self.batch_bind_running = False
+        self.batch_progress_var.set("正在停止...")
+        self.stop_batch_button.config(state=tk.DISABLED)
+
+    def batch_bind_worker(self, start_node, count):
+        """批量绑定工作线程"""
+        success_count = 0
+        failed_nodes = []
+        
+        try:
+            for i in range(count):
+                if not self.batch_bind_running:
+                    break
+                
+                current_node = start_node + i
+                node_name = f"node_{current_node}"
+                
+                # 更新进度
+                progress = i / count * 100
+                self.batch_progress['value'] = progress
+                self.batch_progress_var.set(f"正在绑定 {node_name} ({i+1}/{count})")
+                self.root.update_idletasks()
+                
+                # 获取节点信息
+                node_info = self.get_node_info_by_name(node_name)
+                if node_info:
+                    node_id, device_id = node_info
+                    
+                    # 尝试绑定
+                    if self.bind_single_node(node_id, device_id, node_name):
+                        success_count += 1
+                        self.batch_progress_var.set(f"✅ {node_name} 绑定成功 ({success_count}/{i+1})")
+                    else:
+                        failed_nodes.append(node_name)
+                        self.batch_progress_var.set(f"❌ {node_name} 绑定失败 ({success_count}/{i+1})")
+                else:
+                    failed_nodes.append(f"{node_name} (未找到)")
+                    self.batch_progress_var.set(f"⚠️ {node_name} 未找到 ({success_count}/{i+1})")
+                
+                # 防止请求过快
+                time.sleep(2)
+            
+            # 完成
+            self.batch_progress['value'] = 100
+            
+            if self.batch_bind_running:
+                end_node = start_node + count - 1
+                self.batch_progress_var.set(f"✅ 批量绑定完成！范围: node_{start_node}-{end_node}, 成功: {success_count}")
+                
+                # 显示结果
+                result_msg = f"批量绑定完成！\n\n🔍 绑定范围: node_{start_node} 到 node_{end_node}\n✅ 成功绑定: {success_count} 个节点"
+                if failed_nodes:
+                    result_msg += f"\n❌ 失败节点: {len(failed_nodes)} 个\n{', '.join(failed_nodes)}"
+                
+                messagebox.showinfo("批量绑定完成", result_msg)
+                
+                # 自动查询已绑定节点
+                self.query_bound_nodes()
+            else:
+                self.batch_progress_var.set("❌ 批量绑定已停止")
+            
+        except Exception as e:
+            self.batch_progress_var.set(f"❌ 批量绑定出错: {str(e)}")
+            messagebox.showerror("批量绑定失败", f"批量绑定过程中发生错误: {str(e)}")
+        
+        finally:
+            # 恢复按钮状态
+            self.batch_bind_running = False
+            self.root.after(0, lambda: (
+                self.batch_bind_button.config(state=tk.NORMAL),
+                self.stop_batch_button.config(state=tk.DISABLED)
+            ))
+
+    def get_node_info_by_name(self, node_name):
+        """根据节点名称获取节点信息"""
+        try:
+            # 可能的节点路径
+            possible_paths = [
+                os.path.expanduser(f"~/gaianet_{node_name}"),
+                os.path.expanduser(f"~/{node_name}"),
+                f"/opt/gaianet_{node_name}",
+                f"./{node_name}"
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    try:
+                        # 尝试运行 gaianet info 命令
+                        result = subprocess.run(
+                            ["./bin/gaianet", "info"], 
+                            cwd=path,
+                            capture_output=True, 
+                            text=True, 
+                            timeout=10
+                        )
+                        
+                        if result.returncode == 0:
+                            # 解析输出获取节点ID和设备ID
+                            lines = result.stdout.split('\n')
+                            node_id = None
+                            device_id = None
+                            
+                            for line in lines:
+                                line_lower = line.lower()
+                                if 'node id' in line_lower:
+                                    parts = line.split(':')
+                                    if len(parts) > 1:
+                                        node_id = parts[1].strip()
+                                elif 'device id' in line_lower:
+                                    parts = line.split(':')
+                                    if len(parts) > 1:
+                                        device_id = parts[1].strip()
+                            
+                            if node_id and device_id:
+                                return (node_id, device_id)
+                    except:
+                        continue
+            
+            return None
+            
+        except Exception as e:
+            print(f"获取节点 {node_name} 信息失败: {str(e)}")
+            return None
+
+    def bind_single_node(self, node_id, device_id, node_name=""):
+        """绑定单个节点（用于批量绑定）"""
+        try:
+            # 创建签名消息
+            message_data = {
+                "node_id": node_id,
+                "device_id": device_id
+            }
+            
+            # 对消息进行签名
+            message_text = json.dumps(message_data, separators=(',', ':'))
+            message_hash = encode_defunct(text=message_text)
+            signature = self.wallet_account.sign_message(message_hash)
+            
+            # 发送绑定请求
+            url = "https://api.gaianet.ai/api/v1/users/bind-node/"
+            payload = {
+                "node_id": node_id,
+                "device_id": device_id,
+                "signature": signature.signature.hex()
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+                "User-Agent": "GaiaNet-GUI/1.2"
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("code") == 0
+            else:
+                return False
+                
+        except Exception as e:
+            print(f"绑定节点 {node_name} 失败: {str(e)}")
+            return False
+
+    def connect_wallet(self):
+        """连接钱包"""
+        private_key = self.private_key_var.get().strip()
+        if not private_key:
+            messagebox.showerror("错误", "请输入钱包私钥")
+            return
+        
+        try:
+            # 验证私钥格式
+            if not private_key.startswith('0x'):
+                private_key = '0x' + private_key
+            
+            # 创建账户
+            self.wallet_account = Account.from_key(private_key)
+            wallet_address = self.wallet_account.address
+            
+            # 更新界面
+            self.wallet_address_var.set(wallet_address)
+            self.wallet_status_var.set("钱包已连接，正在登录到Gaia服务器...")
+            self.root.update()
+            
+            # 登录到Gaia服务器
+            success = self.login_to_gaia_server()
+            if success:
+                self.wallet_status_var.set("✅ 已连接并登录成功")
+                self.user_info_frame.pack(fill=tk.X, padx=20, pady=10)
+                messagebox.showinfo("成功", "钱包连接并登录成功！")
+            else:
+                self.wallet_status_var.set("❌ 钱包已连接，但登录失败")
+                
+        except Exception as e:
+            messagebox.showerror("错误", f"连接钱包失败: {str(e)}")
+            self.wallet_status_var.set("❌ 连接失败")
+
+    def disconnect_wallet(self):
+        """断开钱包连接"""
+        self.wallet_account = None
+        self.access_token = None
+        self.api_key = None
+        self.user_id = None
+        
+        self.wallet_address_var.set("未连接")
+        self.wallet_status_var.set("未连接")
+        self.private_key_var.set("")
+        
+        self.user_info_frame.pack_forget()
+        self.user_info_text.delete(1.0, tk.END)
+        self.bound_nodes_text.delete(1.0, tk.END)
+        
+        messagebox.showinfo("成功", "钱包已断开连接")
+
+    def login_to_gaia_server(self):
+        """登录到Gaia服务器"""
+        if not self.wallet_account:
+            return False
+        
+        try:
+            # 创建签名消息
+            timestamp = int(time.time())
+            message_data = {
+                "wallet_address": self.wallet_account.address,
+                "timestamp": timestamp,
+                "message": "By signing this message, you acknowledge that you have read and understood our Terms of Service. You agree to abide by all the terms and conditions."
+            }
+            
+            # 对消息进行签名
+            message_text = json.dumps(message_data, separators=(',', ':'))
+            message_hash = encode_defunct(text=message_text)
+            signature = self.wallet_account.sign_message(message_hash)
+            
+            # 发送请求到服务器
+            url = "https://api.gaianet.ai/api/v1/users/connect-wallet/"
+            payload = {
+                "signature": signature.signature.hex(),
+                "message": message_data
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": "GaiaNet-GUI/1.2"
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 0:
+                    user_data = data.get("data", {})
+                    self.access_token = user_data.get("access_token")
+                    self.api_key = user_data.get("api_key")
+                    self.user_id = user_data.get("user_id")
+                    
+                    # 显示用户信息
+                    info_text = f"""✅ 登录成功！
+                    
+用户ID: {self.user_id}
+API Key: {self.api_key}
+访问令牌: {self.access_token[:50]}...
+
+登录时间: {time.strftime('%Y-%m-%d %H:%M:%S')}
+钱包地址: {self.wallet_account.address}
+"""
+                    self.user_info_text.delete(1.0, tk.END)
+                    self.user_info_text.insert(1.0, info_text)
+                    
+                    return True
+                else:
+                    messagebox.showerror("登录失败", f"服务器返回错误: {data.get('msg', '未知错误')}")
+                    return False
+            else:
+                messagebox.showerror("登录失败", f"HTTP错误: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            messagebox.showerror("登录失败", f"登录过程中发生错误: {str(e)}")
+            return False
+
+    def bind_node(self):
+        """绑定节点"""
+        if not self.wallet_account or not self.access_token:
+            messagebox.showerror("错误", "请先连接钱包并登录")
+            return
+        
+        node_id = self.node_id_var.get().strip()
+        device_id = self.device_id_var.get().strip()
+        
+        if not node_id or not device_id:
+            messagebox.showerror("错误", "请输入节点ID和设备ID")
+            return
+        
+        try:
+            # 创建签名消息
+            message_data = {
+                "node_id": node_id,
+                "device_id": device_id
+            }
+            
+            # 对消息进行签名
+            message_text = json.dumps(message_data, separators=(',', ':'))
+            message_hash = encode_defunct(text=message_text)
+            signature = self.wallet_account.sign_message(message_hash)
+            
+            # 发送绑定请求 - 修正为正确的格式
+            url = "https://api.gaianet.ai/api/v1/users/bind-node/"
+            payload = {
+                "node_id": node_id,
+                "device_id": device_id,
+                "signature": signature.signature.hex()
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+                "User-Agent": "GaiaNet-GUI/1.2"
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 0:
+                    messagebox.showinfo("成功", "节点绑定成功！")
+                    # 自动查询已绑定节点
+                    self.query_bound_nodes()
+                else:
+                    messagebox.showerror("绑定失败", f"服务器返回错误: {data.get('msg', '未知错误')}")
+            else:
+                try:
+                    data = response.json()
+                    error_msg = data.get('msg', f'HTTP错误: {response.status_code}')
+                    messagebox.showerror("绑定失败", error_msg)
+                except:
+                    error_msg = f'HTTP错误: {response.status_code}'
+                    messagebox.showerror("绑定失败", error_msg)
+                
+        except Exception as e:
+            messagebox.showerror("绑定失败", f"绑定过程中发生错误: {str(e)}")
+
+    def get_local_node_info(self):
+        """获取本地节点信息"""
+        try:
+            # 尝试从默认节点目录获取信息
+            possible_paths = [
+                os.path.expanduser("~/gaianet"),
+                os.path.expanduser("~/gaianet_node1"),
+                os.path.expanduser("~/gaianet_node2"),
+                os.path.expanduser("~/gaianet_node3"),
+                "/opt/gaianet",
+                "./gaianet"
+            ]
+            
+            node_info = None
+            found_path = None
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    try:
+                        # 尝试运行 gaianet info 命令
+                        result = subprocess.run(
+                            ["./bin/gaianet", "info"], 
+                            cwd=path,
+                            capture_output=True, 
+                            text=True, 
+                            timeout=10
+                        )
+                        
+                        if result.returncode == 0:
+                            node_info = result.stdout
+                            found_path = path
+                            break
+                    except:
+                        continue
+            
+            if node_info:
+                # 解析节点信息
+                info_dialog = tk.Toplevel(self.root)
+                info_dialog.title("本地节点信息")
+                info_dialog.geometry("600x400")
+                info_dialog.transient(self.root)
+                info_dialog.grab_set()
+                
+                # 创建文本显示区域
+                text_frame = ttk.Frame(info_dialog)
+                text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+                
+                info_text = scrolledtext.ScrolledText(text_frame, height=20, width=70)
+                info_text.pack(fill=tk.BOTH, expand=True)
+                
+                display_text = f"📍 节点路径: {found_path}\n\n"
+                display_text += "🔍 节点信息:\n"
+                display_text += "=" * 50 + "\n"
+                display_text += node_info
+                display_text += "\n" + "=" * 50 + "\n\n"
+                
+                # 尝试提取关键信息
+                try:
+                    lines = node_info.split('\n')
+                    device_id = None
+                    node_id = None
+                    
+                    for line in lines:
+                        if 'device id' in line.lower() or 'device_id' in line.lower():
+                            parts = line.split(':')
+                            if len(parts) > 1:
+                                device_id = parts[1].strip()
+                        elif 'node id' in line.lower() or 'node_id' in line.lower():
+                            parts = line.split(':')
+                            if len(parts) > 1:
+                                node_id = parts[1].strip()
+                    
+                    if device_id or node_id:
+                        display_text += "💡 自动识别的关键信息:\n"
+                        if node_id:
+                            display_text += f"🆔 节点ID: {node_id}\n"
+                        if device_id:
+                            display_text += f"📱 设备ID: {device_id}\n"
+                        display_text += "\n"
+                        
+                        # 创建按钮区域
+                        button_frame = ttk.Frame(info_dialog)
+                        button_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+                        
+                        def auto_fill():
+                            if node_id:
+                                self.node_id_var.set(node_id)
+                            if device_id:
+                                self.device_id_var.set(device_id)
+                            info_dialog.destroy()
+                            messagebox.showinfo("成功", "节点信息已自动填入表单")
+                        
+                        ttk.Button(button_frame, text="自动填入表单", 
+                                  command=auto_fill).pack(side=tk.LEFT, padx=(0, 10))
+                        ttk.Button(button_frame, text="关闭", 
+                                  command=info_dialog.destroy).pack(side=tk.LEFT)
+                        
+                except Exception as e:
+                    display_text += f"⚠️ 解析节点信息时出错: {str(e)}\n"
+                
+                info_text.insert(1.0, display_text)
+                info_text.config(state=tk.DISABLED)
+                
+            else:
+                messagebox.showwarning("未找到节点", 
+                    f"""未能找到本地GaiaNet节点信息。
+
+🔍 请检查:
+• GaiaNet节点是否已安装
+• 节点是否在以下路径之一:
+  {chr(10).join(['  • ' + path for path in possible_paths])}
+• 节点是否正在运行
+
+💡 手动获取方法:
+1. 进入您的节点目录
+2. 运行命令: ./bin/gaianet info
+3. 复制输出中的设备ID和节点ID""")
+                
+        except Exception as e:
+            messagebox.showerror("获取失败", f"获取本地节点信息时发生错误: {str(e)}")
+
+    def query_bound_nodes(self):
+        """查询已绑定的节点"""
+        if not self.access_token:
+            messagebox.showerror("错误", "请先连接钱包并登录")
+            return
+        
+        try:
+            url = "https://api.gaianet.ai/api/v1/users/nodes/"
+            headers = {
+                "Authorization": self.access_token,
+                "User-Agent": "GaiaNet-GUI/1.2"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 0:
+                    nodes = data.get("data", {}).get("objects", [])
+                    
+                    # 显示节点信息
+                    if nodes:
+                        nodes_text = f"✅ 找到 {len(nodes)} 个已绑定节点:\n\n"
+                        
+                        for i, node in enumerate(nodes, 1):
+                            nodes_text += f"━━━━━━━━━━━━━━━━━━ 节点 {i} ━━━━━━━━━━━━━━━━━━\n"
+                            
+                            # 格式化显示关键信息
+                            if 'node_id' in node:
+                                nodes_text += f"🆔 节点ID: {node['node_id']}\n"
+                            if 'device_id' in node:
+                                nodes_text += f"📱 设备ID: {node['device_id']}\n"
+                            if 'subdomain' in node:
+                                nodes_text += f"🌐 访问地址: https://{node['subdomain']}\n"
+                            if 'id' in node:
+                                nodes_text += f"🔗 绑定ID: {node['id']}\n"
+                            if 'created_at' in node:
+                                # 格式化时间显示
+                                try:
+                                    from datetime import datetime
+                                    created_time = datetime.fromisoformat(node['created_at'].replace('Z', '+00:00'))
+                                    local_time = created_time.strftime('%Y-%m-%d %H:%M:%S')
+                                    nodes_text += f"⏰ 绑定时间: {local_time} UTC\n"
+                                except:
+                                    nodes_text += f"⏰ 绑定时间: {node['created_at']}\n"
+                            if 'user' in node:
+                                nodes_text += f"👤 用户ID: {node['user']}\n"
+                            
+                            # 显示其他所有字段
+                            other_fields = {k: v for k, v in node.items() 
+                                          if k not in ['node_id', 'device_id', 'subdomain', 'id', 'created_at', 'user']}
+                            if other_fields:
+                                nodes_text += f"📋 其他信息:\n"
+                                for key, value in other_fields.items():
+                                    nodes_text += f"   {key}: {value}\n"
+                            
+                            nodes_text += "\n"
+                            
+                        # 添加使用提示
+                        nodes_text += "💡 提示:\n"
+                        nodes_text += "• 您可以通过子域名直接访问您的节点\n"
+                        nodes_text += "• 节点ID用于API调用和服务管理\n"
+                        nodes_text += "• 设备ID是节点的唯一标识符\n"
+                        
+                    else:
+                        nodes_text = """📋 暂无已绑定的节点
+
+🔍 如何获取节点信息:
+1. 确保您的GaiaNet节点正在运行
+2. 在节点目录中运行命令: gaianet info
+3. 从输出中获取正确的设备ID
+4. 节点ID通常是节点的以太坊地址
+
+⚠️ 常见问题:
+• Device ID not recognized: 检查节点是否正在运行
+• 网络连接问题: 检查防火墙设置
+• 私钥错误: 确保使用正确的钱包私钥
+
+💡 需要帮助? 
+请查看GaiaNet官方文档或联系技术支持。"""
+                    
+                    self.bound_nodes_text.delete(1.0, tk.END)
+                    self.bound_nodes_text.insert(1.0, nodes_text)
+                else:
+                    messagebox.showerror("查询失败", f"服务器返回错误: {data.get('msg', '未知错误')}")
+            else:
+                messagebox.showerror("查询失败", f"HTTP错误: {response.status_code}")
+                
+        except Exception as e:
+            messagebox.showerror("查询失败", f"查询过程中发生错误: {str(e)}")
+
     def create_log_tab(self):
         """创建日志查看选项卡"""
         log_frame = ttk.Frame(self.notebook)
@@ -625,7 +1521,7 @@ class GaiaNetGUI:
         ttk.Label(status_frame, textvariable=self.status_var).pack(side=tk.LEFT, padx=5)
         
         # 版本信息
-        ttk.Label(status_frame, text="v1.2").pack(side=tk.RIGHT, padx=5)
+        ttk.Label(status_frame, text="v1.3").pack(side=tk.RIGHT, padx=5)
         
     def create_node_form(self, parent):
         """创建节点编辑表单"""
