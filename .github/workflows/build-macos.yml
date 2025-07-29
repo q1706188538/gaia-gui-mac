@@ -25,7 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller pillow
+        pip install pyinstaller pillow requests eth-account web3
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         
     - name: Build macOS app
@@ -44,7 +44,11 @@ jobs:
                 ('src/*.sh', 'scripts'),
                 ('scripts/*.sh', 'scripts'),
             ],
-            hiddenimports=['tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog'],
+            hiddenimports=[
+                'tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog', 'tkinter.scrolledtext',
+                'requests', 'json', 'time', 'secrets', 'threading', 'subprocess',
+                'eth_account', 'eth_account.messages', 'web3', 'pathlib'
+            ],
             hookspath=[],
             hooksconfig={},
             runtime_hooks=[],
