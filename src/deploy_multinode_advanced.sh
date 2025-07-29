@@ -2,7 +2,7 @@
 
 # GaiaNet 多节点部署管理脚本 - 基于共享模型服务的高级版本
 # 用于批量部署和管理多个GaiaNet代理节点
-# 💾 空间优化: 节点初始化时不复制GGUF模型文件，节省每个节点约5-8GB空间
+# 🔧 节点完整性: 包含所有必要文件确保节点符合域要求
 
 set -e
 
@@ -717,18 +717,15 @@ init_nodes() {
         # 复制基础文件（排除身份相关文件）
         if [ -d "$HOME/gaianet" ]; then
             info "    复制基础配置..."
-            info "    💾 空间优化: 跳过GGUF模型文件复制（使用共享服务）"
+            info "    📂 复制必要文件（包含模型文件以确保节点完整性）"
             
-            # 复制所有文件除了身份文件、临时文件和大型模型文件（共享服务已提供）
+            # 复制所有文件除了身份文件、临时文件（保留模型文件确保节点完整）
             rsync -av \
                 --exclude='nodeid.json' \
                 --exclude='deviceid.txt' \
                 --exclude='keystore' \
                 --exclude='*.pid' \
                 --exclude='log/' \
-                --exclude='*.gguf' \
-                --exclude='chat/' \
-                --exclude='embedding/' \
                 "$HOME/gaianet/" "$base_dir/"
             
             # 重新生成节点身份信息
