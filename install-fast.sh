@@ -215,26 +215,22 @@ install_homebrew_and_python311() {
     
     # 添加Homebrew到PATH
     if [ -f "/opt/homebrew/bin/brew" ]; then
-            export PATH="/opt/homebrew/bin:$PATH"
-            echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zprofile
-        elif [ -f "/usr/local/bin/brew" ]; then
-            export PATH="/usr/local/bin:$PATH"
-            echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.zprofile
-        fi
-        
-        # 安装Python 3.11
-        info "📦 使用新安装的Homebrew安装Python 3.11..."
-        if brew install python@3.11; then
-            info "✅ Python 3.11安装完成"
-            export PYTHON3_CMD="python3.11"
-            update_shell_config_for_python311
-            return 0
-        else
-            error "❌ Python 3.11安装失败"
-            return 1
-        fi
+        export PATH="/opt/homebrew/bin:$PATH"
+        echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zprofile
+    elif [ -f "/usr/local/bin/brew" ]; then
+        export PATH="/usr/local/bin:$PATH"
+        echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.zprofile
+    fi
+    
+    # 安装Python 3.11
+    info "📦 使用新安装的Homebrew安装Python 3.11..."
+    if brew install python@3.11; then
+        info "✅ Python 3.11安装完成"
+        export PYTHON3_CMD="python3.11"
+        update_shell_config_for_python311
+        return 0
     else
-        error "❌ Homebrew安装失败"
+        error "❌ Python 3.11安装失败"
         return 1
     fi
 }
