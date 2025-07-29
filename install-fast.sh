@@ -165,21 +165,25 @@ check_and_install_python311() {
         # 安装Python包
         if [ -n "$SUDO_PASSWORD" ]; then
             info "🔧 使用提供的密码自动安装Python 3.11..."
-            # 使用expect进行自动化sudo操作
-            if command -v expect >/dev/null 2>&1; then
-                expect << EOF
-spawn sudo installer -pkg "$python_pkg" -target /
-expect "Password:"
-send "$SUDO_PASSWORD\r"
-expect eof
-EOF
-            else
-                # 如果没有expect，使用管道方式并加延迟
-                printf "%s\n" "$SUDO_PASSWORD" | sudo -S installer -pkg "$python_pkg" -target / 2>/dev/null
-                if [ $? -ne 0 ]; then
-                    warning "⚠️ 自动密码输入失败，请手动输入密码"
-                    sudo installer -pkg "$python_pkg" -target /
+            
+            # 调试信息（不显示密码内容，只显示长度）
+            local pwd_length=${#SUDO_PASSWORD}
+            info "🔍 密码长度: $pwd_length 字符"
+            
+            # 方法1: 使用sudo -S并确保密码正确传递
+            if echo "$SUDO_PASSWORD" | sudo -S -v 2>/dev/null; then
+                info "✅ 密码验证成功"
+                echo "$SUDO_PASSWORD" | sudo -S installer -pkg "$python_pkg" -target /
+                local install_result=$?
+                if [ $install_result -eq 0 ]; then
+                    info "✅ Python 3.11安装完成"
+                else
+                    warning "⚠️ Python 3.11安装可能失败（退出码: $install_result）"
                 fi
+            else
+                warning "⚠️ 提供的密码无效，请手动输入密码"
+                info "🔧 安装Python 3.11 (需要管理员权限)..."
+                sudo installer -pkg "$python_pkg" -target /
             fi
         else
             info "🔧 安装Python 3.11 (需要管理员权限)..."
