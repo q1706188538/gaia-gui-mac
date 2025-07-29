@@ -1267,14 +1267,29 @@ class GaiaNetGUI:
         if not result:
             return
             
+        # 在后台线程中执行批量加入域操作
+        self.append_wallet_log("=" * 50)
+        self.append_wallet_log(f"🌐 开始批量加入域操作")
+        self.append_wallet_log(f"📋 目标域ID: {domain_id}")
+        self.append_wallet_log("=" * 50)
+        
+        self.domain_status_var.set("🔄 正在批量加入域...")
+        
+        # 启动后台线程
+        def batch_join_worker():
+            try:
+                self._batch_join_domain_worker(domain_id)
+            except Exception as e:
+                self.root.after(0, lambda: self.append_wallet_log(f"❌ 批量加入域异常: {str(e)}"))
+                self.root.after(0, lambda: self.domain_status_var.set(f"❌ 批量加入异常: {str(e)}"))
+                self.root.after(0, lambda: messagebox.showerror("批量加入失败", f"批量加入域时发生错误: {str(e)}"))
+        
+        thread = threading.Thread(target=batch_join_worker, daemon=True)
+        thread.start()
+    
+    def _batch_join_domain_worker(self, domain_id):
+        """批量加入域的后台工作线程"""
         try:
-            self.append_wallet_log("=" * 50)
-            self.append_wallet_log(f"🌐 开始批量加入域操作")
-            self.append_wallet_log(f"📋 目标域ID: {domain_id}")
-            self.append_wallet_log("=" * 50)
-            
-            self.domain_status_var.set("🔄 正在批量加入域...")
-            
             # 先获取已绑定节点
             url = "https://api.gaianet.ai/api/v1/users/nodes/"
             headers = {
@@ -1283,15 +1298,15 @@ class GaiaNetGUI:
                 "User-Agent": "GaiaNet-GUI/1.3"
             }
             
-            self.append_wallet_log(f"🔍 获取已绑定节点列表...")
-            self.append_wallet_log(f"   请求URL: {url}")
-            self.append_wallet_log(f"   请求头: {dict(headers)}")
+            self.root.after(0, lambda: self.append_wallet_log(f"🔍 获取已绑定节点列表..."))
+            self.root.after(0, lambda: self.append_wallet_log(f"   请求URL: {url}"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   请求头: {dict(headers)}"))
             
             response = requests.get(url, headers=headers, timeout=30)
             
-            self.append_wallet_log(f"📡 获取节点列表响应:")
-            self.append_wallet_log(f"   状态码: {response.status_code}")
-            self.append_wallet_log(f"   响应体: {response.text}")
+            self.root.after(0, lambda: self.append_wallet_log(f"📡 获取节点列表响应:"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   状态码: {response.status_code}"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   响应体: {response.text}"))
             
             if response.status_code == 200:
                 data = response.json()
@@ -1299,41 +1314,45 @@ class GaiaNetGUI:
                     nodes = data.get("data", {}).get("objects", [])
                     
                     if not nodes:
-                        self.append_wallet_log("⚠️ 没有已绑定的节点")
-                        self.domain_status_var.set("⚠️ 没有已绑定的节点")
+                        self.root.after(0, lambda: self.append_wallet_log("⚠️ 没有已绑定的节点"))
+                        self.root.after(0, lambda: self.domain_status_var.set("⚠️ 没有已绑定的节点"))
                         return
                     
-                    self.append_wallet_log(f"✅ 找到 {len(nodes)} 个已绑定节点")
+                    self.root.after(0, lambda: self.append_wallet_log(f"✅ 找到 {len(nodes)} 个已绑定节点"))
                     
-                    # 批量加入域
+                    # 批量加入域 - 保持详细日志显示
                     success_count = 0
                     failed_nodes = []
                     
                     for i, node in enumerate(nodes, 1):
                         node_id = node.get('node_id')
                         if node_id:
-                            self.append_wallet_log(f"🔄 处理节点 {i}/{len(nodes)}: {node_id[:10]}...")
+                            self.root.after(0, lambda i=i, total=len(nodes), nid=node_id[:10]: 
+                                          self.append_wallet_log(f"🔄 处理节点 {i}/{total}: {nid}..."))
                             
-                            if self.join_node_to_domain(node_id, domain_id, show_message=False):
+                            # 使用线程安全的方式调用加入域方法，并保持详细日志
+                            if self._join_node_to_domain_threaded(node_id, domain_id):
                                 success_count += 1
-                                self.append_wallet_log(f"✅ 节点 {node_id[:10]}... 加入域成功")
+                                self.root.after(0, lambda nid=node_id[:10]: 
+                                              self.append_wallet_log(f"✅ 节点 {nid}... 加入域成功"))
                             else:
                                 failed_nodes.append(node_id[:10] + "...")
-                                self.append_wallet_log(f"❌ 节点 {node_id[:10]}... 加入域失败")
+                                self.root.after(0, lambda nid=node_id[:10]: 
+                                              self.append_wallet_log(f"❌ 节点 {nid}... 加入域失败"))
                             time.sleep(1)  # 避免请求过快
                     
                     # 显示结果
-                    self.append_wallet_log("=" * 50)
-                    self.append_wallet_log(f"🎉 批量加入域操作完成")
-                    self.append_wallet_log(f"📊 操作统计:")
-                    self.append_wallet_log(f"   目标域: {domain_id}")
-                    self.append_wallet_log(f"   总节点数: {len(nodes)}")
-                    self.append_wallet_log(f"   成功: {success_count} 个")
-                    self.append_wallet_log(f"   失败: {len(failed_nodes)} 个")
+                    self.root.after(0, lambda: self.append_wallet_log("=" * 50))
+                    self.root.after(0, lambda: self.append_wallet_log(f"🎉 批量加入域操作完成"))
+                    self.root.after(0, lambda: self.append_wallet_log(f"📊 操作统计:"))
+                    self.root.after(0, lambda: self.append_wallet_log(f"   目标域: {domain_id}"))
+                    self.root.after(0, lambda: self.append_wallet_log(f"   总节点数: {len(nodes)}"))
+                    self.root.after(0, lambda: self.append_wallet_log(f"   成功: {success_count} 个"))
+                    self.root.after(0, lambda: self.append_wallet_log(f"   失败: {len(failed_nodes)} 个"))
                     
                     if failed_nodes:
-                        self.append_wallet_log(f"   失败节点: {', '.join(failed_nodes)}")
-                    self.append_wallet_log("=" * 50)
+                        self.root.after(0, lambda: self.append_wallet_log(f"   失败节点: {', '.join(failed_nodes)}"))
+                    self.root.after(0, lambda: self.append_wallet_log("=" * 50))
                     
                     result_msg = f"批量加入域完成！\n\n"
                     result_msg += f"🌐 目标域: {domain_id}\n"
@@ -1343,22 +1362,110 @@ class GaiaNetGUI:
                         result_msg += f"❌ 失败: {len(failed_nodes)} 个节点\n"
                         result_msg += f"失败节点: {', '.join(failed_nodes)}"
                     
-                    self.domain_status_var.set(f"✅ 批量加入完成: {success_count}/{len(nodes)}")
-                    messagebox.showinfo("批量加入完成", result_msg)
+                    self.root.after(0, lambda: self.domain_status_var.set(f"✅ 批量加入完成: {success_count}/{len(nodes)}"))
+                    self.root.after(0, lambda: messagebox.showinfo("批量加入完成", result_msg))
                     
                 else:
                     error_msg = data.get('msg', '未知错误')
-                    self.append_wallet_log(f"❌ 获取节点列表失败: {error_msg}")
-                    self.domain_status_var.set(f"❌ 获取节点失败: {error_msg}")
+                    self.root.after(0, lambda: self.append_wallet_log(f"❌ 获取节点列表失败: {error_msg}"))
+                    self.root.after(0, lambda: self.domain_status_var.set(f"❌ 获取节点失败: {error_msg}"))
             else:
                 error_msg = f"HTTP {response.status_code}"
-                self.append_wallet_log(f"❌ 请求失败: {error_msg}")
-                self.domain_status_var.set(f"❌ 请求失败: {error_msg}")
+                self.root.after(0, lambda: self.append_wallet_log(f"❌ 请求失败: {error_msg}"))
+                self.root.after(0, lambda: self.domain_status_var.set(f"❌ 请求失败: {error_msg}"))
                 
         except Exception as e:
-            self.append_wallet_log(f"❌ 批量加入域异常: {str(e)}")
-            self.domain_status_var.set(f"❌ 批量加入异常: {str(e)}")
-            messagebox.showerror("批量加入失败", f"批量加入域时发生错误: {str(e)}")
+            self.root.after(0, lambda: self.append_wallet_log(f"❌ 批量加入域工作线程异常: {str(e)}"))
+            self.root.after(0, lambda: self.domain_status_var.set(f"❌ 批量加入异常: {str(e)}"))
+            raise
+    
+    def _join_node_to_domain_threaded(self, node_id, domain_id):
+        """线程安全的加入节点到域方法 - 显示详细HTTP日志"""
+        try:
+            # 记录开始操作
+            self.root.after(0, lambda: self.append_wallet_log(f"🌐 开始加入域操作"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   节点ID: {node_id[:10]}..."))
+            self.root.after(0, lambda: self.append_wallet_log(f"   域ID: {domain_id}"))
+            
+            # 尝试两种可能的API路径格式
+            api_paths = [
+                f"https://api.gaianet.ai/api/v1/network/domain/{domain_id}/apply-for-join/",
+                f"https://api.gaianet.ai/api/v1/network/domain/{domain_id}/apply-for-join"
+            ]
+            
+            payload = {"node_id": node_id}
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": self.access_token,
+                "User-Agent": "GaiaNet-GUI/1.3"
+            }
+            
+            # 记录请求信息到日志
+            self.root.after(0, lambda: self.append_wallet_log("📋 请求详情:"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   请求体: {json.dumps(payload, ensure_ascii=False)}"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   请求头: Content-Type: {headers['Content-Type']}"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   认证: {self.access_token[:20]}..."))
+            self.root.after(0, lambda: self.append_wallet_log(f"   User-Agent: {headers['User-Agent']}"))
+            
+            # 尝试API路径
+            response = None
+            last_error = None
+            used_url = None
+            
+            for i, url in enumerate(api_paths):
+                try:
+                    self.root.after(0, lambda i=i, url=url: self.append_wallet_log(f"🔗 尝试API路径 {i+1}: {url}"))
+                    
+                    response = requests.post(url, json=payload, headers=headers, timeout=30)
+                    used_url = url
+                    
+                    if response.status_code != 404:
+                        break
+                    else:
+                        self.root.after(0, lambda: self.append_wallet_log(f"❌ API路径返回404，尝试下一个..."))
+                        continue
+                        
+                except Exception as e:
+                    last_error = e
+                    self.root.after(0, lambda e=str(e): self.append_wallet_log(f"❌ 请求异常: {e}"))
+                    continue
+            
+            if response is None:
+                error_msg = f"所有API路径都失败: {last_error}"
+                self.root.after(0, lambda: self.append_wallet_log(f"❌ 连接失败: {error_msg}"))
+                return False
+            
+            # 记录响应详情到日志
+            self.root.after(0, lambda: self.append_wallet_log("📡 响应详情:"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   使用URL: {used_url}"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   状态码: {response.status_code}"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   响应头: {dict(response.headers)}"))
+            self.root.after(0, lambda: self.append_wallet_log(f"   响应体: {response.text}"))
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == 0:
+                    self.root.after(0, lambda: self.append_wallet_log(f"✅ 节点加入域成功！"))
+                    return True
+                else:
+                    error_msg = data.get('msg', '未知错误')
+                    self.root.after(0, lambda: self.append_wallet_log(f"❌ 服务器返回错误: {error_msg}"))
+                    return False
+            else:
+                # 详细的错误信息
+                error_details = f"HTTP {response.status_code}"
+                try:
+                    error_data = response.json()
+                    error_details += f": {error_data.get('msg', '未知错误')}"
+                except:
+                    error_details += f": {response.text[:100]}"
+                
+                self.root.after(0, lambda: self.append_wallet_log(f"❌ HTTP错误: {error_details}"))
+                return False
+                
+        except Exception as e:
+            self.root.after(0, lambda: self.append_wallet_log(f"❌ 加入域异常: {str(e)}"))
+            return False
     
     def join_node_to_domain(self, node_id, domain_id, show_message=True):
         """加入节点到域的核心方法"""
