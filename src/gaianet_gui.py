@@ -1159,7 +1159,7 @@ class GaiaNetGUI:
             self.append_wallet_log("🔍 开始获取已绑定节点列表...")
             self.domain_status_var.set("📋 正在获取已绑定节点...")
             
-            url = "https://api.gaianet.ai/api/v1/users/bind-nodes/"
+            url = "https://api.gaianet.ai/api/v1/users/nodes/"
             headers = {
                 "Content-Type": "application/json", 
                 "Authorization": self.access_token,
@@ -1180,7 +1180,7 @@ class GaiaNetGUI:
             if response.status_code == 200:
                 data = response.json()
                 if data.get('code') == 0:
-                    nodes = data.get('data', [])
+                    nodes = data.get("data", {}).get("objects", [])
                     
                     self.append_wallet_log(f"✅ 成功获取已绑定节点，共 {len(nodes)} 个节点")
                     
@@ -1276,7 +1276,7 @@ class GaiaNetGUI:
             self.domain_status_var.set("🔄 正在批量加入域...")
             
             # 先获取已绑定节点
-            url = "https://api.gaianet.ai/api/v1/users/bind-nodes/"
+            url = "https://api.gaianet.ai/api/v1/users/nodes/"
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": self.access_token,
@@ -1296,7 +1296,7 @@ class GaiaNetGUI:
             if response.status_code == 200:
                 data = response.json()
                 if data.get('code') == 0:
-                    nodes = data.get('data', [])
+                    nodes = data.get("data", {}).get("objects", [])
                     
                     if not nodes:
                         self.append_wallet_log("⚠️ 没有已绑定的节点")
