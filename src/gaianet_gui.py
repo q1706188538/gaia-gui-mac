@@ -4267,6 +4267,103 @@ class GaiaNetCLI:
                 sys.exit(1)
         else:
             print("⚠️ 未指定配置文件，使用默认配置")
+    
+    def get_node_info_by_name(self, node_name):
+        """根据节点名称获取节点信息（CLI版本）"""
+        try:
+            # 可能的节点路径 - 支持多种命名格式
+            possible_paths = [
+                # 标准格式: gaianet_node1, gaianet_node2 等
+                os.path.expanduser(f"~/gaianet_{node_name}"),
+                # 带下划线格式: gaianet_node_1, gaianet_node_2 等  
+                os.path.expanduser(f"~/gaianet_{node_name.replace('_', '')}"),
+                # 如果输入是node_1格式，尝试转换为node1然后查找gaianet_node1
+                os.path.expanduser(f"~/gaianet_{node_name.replace('node_', 'node')}"),
+                # 直接使用原始名称
+                os.path.expanduser(f"~/{node_name}"),
+            ]
+            
+            node_path = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    node_path = path
+                    break
+            
+            if not node_path:
+                return None
+            
+            # 读取 nodeid.json
+            nodeid_file = os.path.join(node_path, "nodeid.json")
+            if not os.path.exists(nodeid_file):
+                return None
+                
+            with open(nodeid_file, 'r') as f:
+                nodeid_data = json.load(f)
+            
+            node_id = nodeid_data.get("address", "")
+            if not node_id:
+                return None
+            
+            # 读取 deviceid.txt
+            deviceid_file = os.path.join(node_path, "deviceid.txt")
+            if os.path.exists(deviceid_file):
+                with open(deviceid_file, 'r') as f:
+                    device_id = f.read().strip()
+            else:
+                device_id = "unknown"
+            
+            return (node_id, device_id)
+            
+        except Exception as e:
+            print(f"获取节点信息失败: {e}")
+            return None
+    
+    def bind_single_node(self, node_id, device_id, node_name=""):
+        """绑定单个节点（CLI版本）"""
+        try:
+            import requests
+            from eth_account.messages import encode_defunct
+            
+            # 创建签名消息
+            message_data = {
+                "node_id": node_id,
+                "device_id": device_id
+            }
+            
+            # 对消息进行签名
+            message_text = json.dumps(message_data, separators=(',', ':'))
+            message_hash = encode_defunct(text=message_text)
+            signature = self.wallet_account.sign_message(message_hash)
+            
+            # 发送绑定请求
+            url = "https://api.gaianet.ai/api/v1/users/bind-node/"
+            payload = {
+                "node_id": node_id,
+                "device_id": device_id,
+                "signature": signature.signature.hex()
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": "GaiaNet-GUI/1.2"
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 0:
+                    return True
+                else:
+                    print(f"   API返回错误: {data.get('message', '未知错误')}")
+                    return False
+            else:
+                print(f"   HTTP错误: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            print(f"   绑定节点 {node_name} 失败: {str(e)}")
+            return False
             
     def run_command(self, command, *args):
         """执行系统命令"""
@@ -4354,10 +4451,62 @@ class GaiaNetCLI:
         print(f"   绑定数量: {count}")
         print(f"   起始节点: node_{start_node}")
         
-        # 这里应该调用实际的绑定逻辑
-        # 由于GUI的绑定功能较复杂，暂时返回成功
-        print("✅ 批量绑定完成")
-        return True
+        # 初始化钱包
+        try:
+            from eth_account import Account
+            self.wallet_account = Account.from_key(wallet_config['private_key'])
+            print(f"✅ 钱包连接成功: {self.wallet_account.address}")
+        except Exception as e:
+            print(f"❌ 钱包连接失败: {e}")
+            return False
+        
+        # 获取访问令牌（简化版）
+        self.access_token = "Bearer fake_token"  # CLI版本不需要真实token
+        
+        # 执行批量绑定
+        success_count = 0
+        failed_nodes = []
+        
+        for i in range(count):
+            current_node = start_node + i
+            node_name = f"node_{current_node}"
+            
+            print(f"🔍 正在处理节点 {node_name} ({i+1}/{count})...")
+            
+            # 获取节点信息
+            node_info = self.get_node_info_by_name(node_name) 
+            if node_info:
+                node_id, device_id = node_info
+                print(f"   找到节点信息: NodeID={node_id[:10]}..., DeviceID={device_id}")
+                
+                # 尝试绑定
+                if self.bind_single_node(node_id, device_id, node_name):
+                    success_count += 1
+                    print(f"   ✅ 节点 {node_name} 绑定成功")
+                else:
+                    failed_nodes.append(node_name)
+                    print(f"   ❌ 节点 {node_name} 绑定失败")
+            else:
+                failed_nodes.append(f"{node_name} (未找到)")
+                print(f"   ⚠️ 节点 {node_name} 未找到或无法访问")
+            
+            # 防止请求过快
+            import time
+            time.sleep(2)
+        
+        # 显示结果
+        print(f"\n📊 批量绑定结果:")
+        print(f"   成功: {success_count}/{count}")
+        print(f"   失败: {len(failed_nodes)}")
+        if failed_nodes:
+            print(f"   失败节点: {', '.join(failed_nodes)}")
+        
+        if success_count > 0:
+            print("✅ 批量绑定完成")
+            return True
+        else:
+            print("❌ 批量绑定失败")
+            return False
     
     def batch_join_domain(self, domain_id):
         """命令行模式批量加入域"""
@@ -4380,10 +4529,108 @@ class GaiaNetCLI:
         print(f"   节点数量: {count}")
         print(f"   钱包地址: {wallet_config.get('address', '未知')}")
         
-        # 这里应该调用实际的域加入逻辑
-        # 由于GUI的域加入功能较复杂，暂时返回成功
-        print("✅ 批量加入域完成")
-        return True
+        # 初始化钱包
+        try:
+            from eth_account import Account
+            self.wallet_account = Account.from_key(wallet_config['private_key'])
+            print(f"✅ 钱包连接成功: {self.wallet_account.address}")
+        except Exception as e:
+            print(f"❌ 钱包连接失败: {e}")
+            return False
+        
+        # 执行批量加入域
+        success_count = 0
+        failed_nodes = []
+        
+        for i in range(count):
+            current_node = i + 1
+            node_name = f"node_{current_node}"
+            
+            print(f"🔍 正在处理节点 {node_name} ({i+1}/{count})...")
+            
+            # 获取节点信息
+            node_info = self.get_node_info_by_name(node_name)
+            if node_info:
+                node_id, device_id = node_info
+                print(f"   找到节点信息: NodeID={node_id[:10]}..., DeviceID={device_id}")
+                
+                # 尝试加入域
+                if self.join_domain_single_node(node_id, device_id, domain_id, node_name):
+                    success_count += 1
+                    print(f"   ✅ 节点 {node_name} 加入域成功")
+                else:
+                    failed_nodes.append(node_name)
+                    print(f"   ❌ 节点 {node_name} 加入域失败")
+            else:
+                failed_nodes.append(f"{node_name} (未找到)")
+                print(f"   ⚠️ 节点 {node_name} 未找到或无法访问")
+            
+            # 防止请求过快
+            import time
+            time.sleep(2)
+        
+        # 显示结果
+        print(f"\n📊 批量加入域结果:")
+        print(f"   成功: {success_count}/{count}")
+        print(f"   失败: {len(failed_nodes)}")
+        if failed_nodes:
+            print(f"   失败节点: {', '.join(failed_nodes)}")
+        
+        if success_count > 0:
+            print("✅ 批量加入域完成")
+            return True
+        else:
+            print("❌ 批量加入域失败")
+            return False
+    
+    def join_domain_single_node(self, node_id, device_id, domain_id, node_name=""):
+        """单个节点加入域（CLI版本）"""
+        try:
+            import requests
+            from eth_account.messages import encode_defunct
+            
+            # 创建签名消息
+            message_data = {
+                "node_id": node_id,
+                "device_id": device_id,
+                "domain_id": str(domain_id)
+            }
+            
+            # 对消息进行签名
+            message_text = json.dumps(message_data, separators=(',', ':'))
+            message_hash = encode_defunct(text=message_text)
+            signature = self.wallet_account.sign_message(message_hash)
+            
+            # 发送加入域请求
+            url = "https://api.gaianet.ai/api/v1/domains/join/"
+            payload = {
+                "node_id": node_id,
+                "device_id": device_id,
+                "domain_id": str(domain_id),
+                "signature": signature.signature.hex()
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": "GaiaNet-GUI/1.2"
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 0:
+                    return True
+                else:
+                    print(f"   API返回错误: {data.get('message', '未知错误')}")
+                    return False
+            else:
+                print(f"   HTTP错误: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            print(f"   节点 {node_name} 加入域失败: {str(e)}")
+            return False
     
     def auto_deploy(self):
         """自动部署流程"""
