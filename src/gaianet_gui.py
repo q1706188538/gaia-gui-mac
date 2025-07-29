@@ -4487,8 +4487,74 @@ class GaiaNetCLI:
             print(f"❌ 钱包连接失败: {e}")
             return False
         
-        # 获取访问令牌（简化版）
-        self.access_token = "Bearer fake_token"  # CLI版本不需要真实token
+        # 先登录获取access_token（如果还没有的话）
+        if not hasattr(self, 'access_token') or not self.access_token:
+            if not self.wallet_login_cli():
+                print("❌ 登录失败，无法进行批量绑定")
+                return False
+        else:
+            print(f"✅ 使用已有的访问令牌: {self.access_token[:20]}...")
+    def wallet_login_cli(self):
+        """CLI版本钱包登录"""
+        try:
+            import requests
+            from eth_account.messages import encode_defunct
+            
+            print("🔐 CLI版本钱包登录...")
+            
+            # 获取当前时间戳作为nonce
+            import time
+            nonce = str(int(time.time() * 1000))
+            
+            # 创建登录消息
+            login_message = f"Please sign this message to authenticate: {nonce}"
+            message_hash = encode_defunct(text=login_message)
+            signature = self.wallet_account.sign_message(message_hash)
+            
+            # 发送登录请求
+            url = "https://api.gaianet.ai/api/v1/users/wallet-login/"
+            payload = {
+                "wallet_address": self.wallet_account.address,
+                "signature": signature.signature.hex(),
+                "message": login_message
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": "GaiaNet-GUI/1.2"
+            }
+            
+            print(f"📡 发送登录请求:")
+            print(f"   URL: {url}")
+            print(f"   钱包地址: {self.wallet_account.address}")
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 0:
+                    user_data = data.get("data", {})
+                    self.access_token = user_data.get("access_token")
+                    self.api_key = user_data.get("api_key") 
+                    self.user_id = user_data.get("user_id")
+                    
+                    print(f"✅ 登录成功！")
+                    print(f"   用户ID: {self.user_id}")
+                    print(f"   访问令牌: {self.access_token[:20]}...")
+                    return True
+                else:
+                    print(f"❌ 登录失败: {data.get('message', '未知错误')}")
+                    return False
+            else:
+                print(f"❌ 登录HTTP错误: {response.status_code}")
+                print(f"   响应: {response.text}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ 登录异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
         
         # 执行批量绑定
         success_count = 0
@@ -4565,6 +4631,14 @@ class GaiaNetCLI:
             print(f"❌ 钱包连接失败: {e}")
             return False
         
+        # 先登录获取access_token（如果还没有的话）
+        if not hasattr(self, 'access_token') or not self.access_token:
+            if not self.wallet_login_cli():
+                print("❌ 登录失败，无法进行批量加入域")
+                return False
+        else:
+            print(f"✅ 使用已有的访问令牌: {self.access_token[:20]}...")
+        
         # 执行批量加入域
         success_count = 0
         failed_nodes = []
@@ -4614,51 +4688,59 @@ class GaiaNetCLI:
         """单个节点加入域（CLI版本）"""
         try:
             import requests
-            from eth_account.messages import encode_defunct
             
             print(f"🌐 开始节点 {node_name} 加入域...")
             print(f"   NodeID: {node_id}")
             print(f"   DeviceID: {device_id}")
             print(f"   DomainID: {domain_id}")
             
-            # 创建签名消息
-            message_data = {
-                "node_id": node_id,
-                "device_id": device_id,
-                "domain_id": str(domain_id)
-            }
+            # 使用与GUI版本相同的接口
+            api_paths = [
+                f"https://api.gaianet.ai/api/v1/network/domain/{domain_id}/apply-for-join/",
+                f"https://api.gaianet.ai/api/v1/network/domain/{domain_id}/apply-for-join"
+            ]
             
-            # 对消息进行签名
-            message_text = json.dumps(message_data, separators=(',', ':'))
-            print(f"   签名消息: {message_text}")
-            
-            message_hash = encode_defunct(text=message_text)
-            signature = self.wallet_account.sign_message(message_hash)
-            
-            print(f"   签名结果: {signature.signature.hex()[:20]}...")
-            
-            # 发送加入域请求
-            url = "https://api.gaianet.ai/api/v1/domains/join/"
-            payload = {
-                "node_id": node_id,
-                "device_id": device_id,
-                "domain_id": str(domain_id),
-                "signature": signature.signature.hex()
-            }
-            
+            payload = {"node_id": node_id}
             headers = {
                 "Content-Type": "application/json",
+                "Authorization": self.access_token,
                 "User-Agent": "GaiaNet-GUI/1.2"
             }
             
             print(f"📡 发送加入域请求:")
-            print(f"   URL: {url}")
-            print(f"   Headers: {headers}")
             print(f"   Payload: {json.dumps(payload, indent=2)}")
+            print(f"   Headers: {headers}")
             
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            # 尝试API路径
+            response = None
+            last_error = None
+            used_url = None
+            
+            for i, url in enumerate(api_paths):
+                try:
+                    print(f"🔗 尝试API路径 {i+1}: {url}")
+                    
+                    response = requests.post(url, json=payload, headers=headers, timeout=30)
+                    used_url = url
+                    
+                    if response.status_code != 404:
+                        # 如果不是404错误，就使用这个响应
+                        break
+                    else:
+                        print(f"❌ API路径返回404，尝试下一个...")
+                        continue
+                        
+                except Exception as e:
+                    last_error = e
+                    print(f"❌ 请求异常: {str(e)}")
+                    continue
+            
+            if response is None:
+                print(f"❌ 所有API路径都失败: {last_error}")
+                return False
             
             print(f"📥 收到响应:")
+            print(f"   使用URL: {used_url}")
             print(f"   状态码: {response.status_code}")
             print(f"   响应头: {dict(response.headers)}")
             print(f"   响应体: {response.text}")
