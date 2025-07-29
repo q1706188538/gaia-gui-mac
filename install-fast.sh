@@ -486,6 +486,8 @@ run_with_timeout_fast() {
 create_nodes_config_for_full_auto_fast() {
     info "  📝 创建$NODES_COUNT个节点的配置..."
     
+    # 确保在正确的目录中执行
+    cd "$INSTALL_DIR"
     $PYTHON3_CMD src/gaianet_gui.py --create-config --nodes "$NODES_COUNT"
     
     info "  ✅ 节点配置创建完成"
@@ -495,6 +497,8 @@ create_nodes_config_for_full_auto_fast() {
 generate_wallet_for_full_auto_fast() {
     info "  🔄 生成新钱包地址和私钥..."
     
+    # 确保在正确的目录中执行
+    cd "$INSTALL_DIR"
     if $PYTHON3_CMD src/gaianet_gui.py --headless --generate-wallet --save-to auto-deploy-config.json; then
         info "  ✅ 新钱包已生成并保存"
     else
@@ -505,6 +509,8 @@ generate_wallet_for_full_auto_fast() {
 
 # 更新配置文件中的钱包信息
 update_config_with_wallet_fast() {
+    # 确保在正确的目录中执行
+    cd "$INSTALL_DIR"
     $PYTHON3_CMD -c "
 import json
 import sys
@@ -543,6 +549,8 @@ show_wallet_info_for_full_auto_fast() {
     info ""
     highlight "💰 钱包信息:"
     
+    # 确保在正确的目录中执行
+    cd "$INSTALL_DIR"
     if [ -f "auto-deploy-config.json" ]; then
         $PYTHON3_CMD -c "
 import json
