@@ -65,12 +65,17 @@ while [[ $# -gt 0 ]]; do
             echo "  --nodes NUM       节点数量 (默认: 20)"
             echo "  --wallet KEY      钱包私钥(可选，不提供则自动生成)"
             echo "  --domain-id ID    要加入的域ID(可选)"
-            echo "  --sudo-password PWD  管理员密码(用于自动安装Homebrew)"
+            echo "  --sudo-password PWD  管理员密码(用于自动安装Python和Homebrew)"
             echo "  -h, --help        显示帮助信息"
             echo ""
             echo "示例:"
             echo "  $0 --full-auto --nodes 20 --domain-id 742"
             echo "  $0 --full-auto --sudo-password 'your_password' --nodes 20"
+            echo ""
+            echo "注意:"
+            echo "• 脚本会自动下载安装官方Python 3.11(包含tkinter支持)"
+            echo "• 如果提供了--sudo-password，将自动化安装过程"
+            echo "• 如果未提供密码，安装时会提示输入管理员密码"
             exit 0
             ;;
         *)
@@ -110,8 +115,26 @@ check_and_install_python311() {
     if command -v python3.11 >/dev/null 2>&1; then
         local version=$(python3.11 --version 2>/dev/null | grep -o "3\.11\.[0-9]*")
         if [ -n "$version" ]; then
-            info "✅ Python 3.11已安装: Python $version"
-            export PYTHON3_CMD="python3.11"
+            # 检查tkinter是否可用
+            if python3.11 -c "import tkinter" 2>/dev/null; then
+                info "✅ Python 3.11已安装并支持tkinter: Python $version"
+                export PYTHON3_CMD="python3.11"
+                install_python_dependencies
+                return 0
+            else
+                warning "⚠️ Python 3.11已安装但缺少tkinter支持，将重新安装"
+            fi
+        fi
+    fi
+    
+    # 检查官方Python 3.11
+    local official_python311="/usr/local/bin/python3.11"
+    if [ -f "$official_python311" ]; then
+        if $official_python311 -c "import tkinter" 2>/dev/null; then
+            local version=$($official_python311 --version 2>/dev/null)
+            info "✅ 官方Python 3.11已安装并支持tkinter: $version"
+            export PYTHON3_CMD="$official_python311"
+            install_python_dependencies
             return 0
         fi
     fi
@@ -121,79 +144,124 @@ check_and_install_python311() {
         local current_version=$(python3 --version 2>/dev/null | grep -o "[0-9]\+\.[0-9]\+")
         info "📋 当前Python版本: Python $current_version"
         
-        if [ "$current_version" = "3.11" ]; then
-            info "✅ Python 3.11已安装并设为默认"
+        if [ "$current_version" = "3.11" ] && python3 -c "import tkinter" 2>/dev/null; then
+            info "✅ Python 3.11已安装并支持tkinter"
             export PYTHON3_CMD="python3"
+            install_python_dependencies
             return 0
-        else
-            # 如果是Python 3.9或更高版本，先尝试使用它
-            local major_version=$(echo "$current_version" | cut -d'.' -f1)
-            local minor_version=$(echo "$current_version" | cut -d'.' -f2)
-            
-            if [ "$major_version" = "3" ] && [ "$minor_version" -ge "9" ]; then
-                warning "⚠️ 当前版本是Python $current_version，尝试使用现有版本运行GUI"
-                info "💡 如果GUI运行出现问题，建议手动安装Python 3.11"
-                export PYTHON3_CMD="python3"
-                return 0
-            else
-                warning "⚠️ 当前版本是Python $current_version，但GUI推荐Python 3.11"
-            fi
         fi
     fi
     
-    # 尝试安装Python 3.11
-    info "🔧 尝试安装Python 3.11..."
+    # 需要安装Python 3.11
+    info "🔧 需要安装Python 3.11 (包含tkinter支持)..."
     
-    # 检查是否安装了Homebrew
+    # 方案1: 使用官方Python安装包 (推荐)
+    info "📦 下载并安装官方Python 3.11..."
+    local python_pkg="/tmp/python-3.11.9-macos11.pkg"
+    
+    if curl -L -o "$python_pkg" "https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"; then
+        info "✅ Python安装包下载完成"
+        
+        # 安装Python包
+        if [ -n "$SUDO_PASSWORD" ]; then
+            info "🔧 使用提供的密码自动安装Python 3.11..."
+            echo "$SUDO_PASSWORD" | sudo -S installer -pkg "$python_pkg" -target /
+        else
+            info "🔧 安装Python 3.11 (需要管理员权限)..."
+            sudo installer -pkg "$python_pkg" -target /
+        fi
+        
+        # 清理下载文件
+        rm -f "$python_pkg"
+        
+        # 验证安装
+        if [ -f "/usr/local/bin/python3.11" ] && /usr/local/bin/python3.11 -c "import tkinter" 2>/dev/null; then
+            info "✅ 官方Python 3.11安装成功并支持tkinter"
+            export PYTHON3_CMD="/usr/local/bin/python3.11"
+            # 更新PATH
+            export PATH="/usr/local/bin:$PATH"
+            update_shell_config_for_official_python311
+            install_python_dependencies
+            return 0
+        else
+            warning "⚠️ 官方Python 3.11安装可能有问题，尝试Homebrew方案..."
+        fi
+    else
+        warning "⚠️ 官方Python下载失败，尝试Homebrew方案..."
+    fi
+    
+    # 方案2: 使用Homebrew (备选)
     if command -v brew >/dev/null 2>&1; then
-        info "📦 使用现有Homebrew安装Python 3.11..."
-        if brew install python@3.11; then
-            info "✅ Python 3.11安装完成"
+        info "📦 使用Homebrew安装Python 3.11和tkinter支持..."
+        if brew install python@3.11 python-tk@3.11; then
+            info "✅ Homebrew Python 3.11安装完成"
             
-            # 添加到PATH
+            # 查找Python路径
             local python311_path="/opt/homebrew/bin/python3.11"
             if [ ! -f "$python311_path" ]; then
                 python311_path="/usr/local/bin/python3.11"
             fi
             
-            if [ -f "$python311_path" ]; then
+            if [ -f "$python311_path" ] && $python311_path -c "import tkinter" 2>/dev/null; then
                 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
                 export PYTHON3_CMD="python3.11"
                 update_shell_config_for_python311
-                info "✅ Python 3.11已添加到PATH"
+                install_python_dependencies
+                info "✅ Python 3.11已添加到PATH并支持tkinter"
                 return 0
             else
-                error "❌ Python 3.11安装后未找到"
-                return 1
+                error "❌ Python 3.11安装后tkinter仍不可用"
             fi
         else
             error "❌ Homebrew安装Python 3.11失败"
         fi
-    else
-        warning "⚠️ 未安装Homebrew，跳过Python 3.11安装"
-        info "💡 将使用系统默认Python版本"
-        if command -v python3 >/dev/null 2>&1; then
-            export PYTHON3_CMD="python3"
-            return 0
-        else
-            error "❌ 系统未安装Python 3"
-            error "请手动安装Python 3.11: brew install python@3.11"
-            exit 1
-        fi
-    fi
-    
-    # 如果Homebrew安装失败，但有系统Python，使用系统版本
-    if command -v python3 >/dev/null 2>&1; then
-        warning "⚠️ Python 3.11安装失败，使用系统默认Python版本"
-        export PYTHON3_CMD="python3"
-        return 0
     fi
     
     # 如果所有方法都失败了
-    error "❌ 无法获得可用的Python版本"
-    error "请手动安装Python后重新运行此脚本"
-    error "推荐方法: brew install python@3.11"
+    error "❌ 无法安装Python 3.11"
+    error "请手动安装Python 3.11后重新运行此脚本"
+    error "推荐方法: 下载官方安装包 https://www.python.org/downloads/"
     exit 1
+}
+
+# 安装Python依赖
+install_python_dependencies() {
+    info "📦 安装Python依赖包..."
+    
+    if ! $PYTHON3_CMD -m pip install --upgrade pip; then
+        warning "⚠️ pip升级失败，继续安装依赖..."
+    fi
+    
+    local dependencies="pillow requests eth-account web3"
+    if $PYTHON3_CMD -m pip install $dependencies; then
+        info "✅ Python依赖安装完成"
+    else
+        warning "⚠️ 部分依赖安装失败，GUI可能无法正常运行"
+    fi
+}
+
+# 更新shell配置文件以支持官方Python 3.11
+update_shell_config_for_official_python311() {
+    info "🔧 更新shell配置文件..."
+    
+    local shell_configs=(
+        "$HOME/.zshrc"
+        "$HOME/.bash_profile" 
+        "$HOME/.bashrc"
+    )
+    
+    local path_line='export PATH="/usr/local/bin:$PATH"'
+    
+    for config_file in "${shell_configs[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            if ! grep -q "$path_line" "$config_file"; then
+                echo "" >> "$config_file"
+                echo "# Added by GaiaNet GUI installer" >> "$config_file"
+                echo "$path_line" >> "$config_file"
+                info "✅ 已更新 $config_file"
+            fi
+        fi
+    done
 }
 
 # 安装Homebrew和Python 3.11
