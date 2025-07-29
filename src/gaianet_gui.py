@@ -4503,6 +4503,55 @@ class GaiaNetCLI:
                 return False
         else:
             print(f"✅ 使用已有的访问令牌: {self.access_token[:20]}...")
+        
+        # 执行批量绑定
+        success_count = 0
+        failed_nodes = []
+        
+        print(f"🔄 开始绑定循环，总共 {count} 个节点，起始节点: {start_node}")
+        
+        for i in range(count):
+            current_node = start_node + i
+            node_name = f"node_{current_node}"
+            
+            print(f"🔍 正在处理节点 {node_name} ({i+1}/{count})...")
+            
+            # 获取节点信息
+            node_info = self.get_node_info_by_name(node_name) 
+            if node_info:
+                node_id, device_id = node_info
+                print(f"   找到节点信息: NodeID={node_id[:10]}..., DeviceID={device_id}")
+                
+                # 尝试绑定
+                print(f"   🔗 开始绑定节点 {node_name}...")
+                if self.bind_single_node(node_id, device_id, node_name):
+                    success_count += 1
+                    print(f"   ✅ 节点 {node_name} 绑定成功")
+                else:
+                    failed_nodes.append(node_name)
+                    print(f"   ❌ 节点 {node_name} 绑定失败")
+            else:
+                failed_nodes.append(f"{node_name} (未找到)")
+                print(f"   ⚠️ 节点 {node_name} 未找到或无法访问")
+            
+            # 防止请求过快
+            import time
+            time.sleep(2)
+        
+        # 显示结果
+        print(f"\n📊 批量绑定结果:")
+        print(f"   成功: {success_count}/{count}")
+        print(f"   失败: {len(failed_nodes)}")
+        if failed_nodes:
+            print(f"   失败节点: {', '.join(failed_nodes)}")
+        
+        if success_count > 0:
+            print("✅ 批量绑定完成")
+            return True
+        else:
+            print("❌ 批量绑定失败")
+            return False
+    
     def wallet_login_cli(self):
         """CLI版本钱包登录（使用与GUI相同的接口）"""
         try:
@@ -4577,54 +4626,6 @@ class GaiaNetCLI:
             print(f"❌ 登录异常: {str(e)}")
             import traceback
             traceback.print_exc()
-            return False
-        
-        # 执行批量绑定
-        success_count = 0
-        failed_nodes = []
-        
-        print(f"🔄 开始绑定循环，总共 {count} 个节点，起始节点: {start_node}")
-        
-        for i in range(count):
-            current_node = start_node + i
-            node_name = f"node_{current_node}"
-            
-            print(f"🔍 正在处理节点 {node_name} ({i+1}/{count})...")
-            
-            # 获取节点信息
-            node_info = self.get_node_info_by_name(node_name) 
-            if node_info:
-                node_id, device_id = node_info
-                print(f"   找到节点信息: NodeID={node_id[:10]}..., DeviceID={device_id}")
-                
-                # 尝试绑定
-                print(f"   🔗 开始绑定节点 {node_name}...")
-                if self.bind_single_node(node_id, device_id, node_name):
-                    success_count += 1
-                    print(f"   ✅ 节点 {node_name} 绑定成功")
-                else:
-                    failed_nodes.append(node_name)
-                    print(f"   ❌ 节点 {node_name} 绑定失败")
-            else:
-                failed_nodes.append(f"{node_name} (未找到)")
-                print(f"   ⚠️ 节点 {node_name} 未找到或无法访问")
-            
-            # 防止请求过快
-            import time
-            time.sleep(2)
-        
-        # 显示结果
-        print(f"\n📊 批量绑定结果:")
-        print(f"   成功: {success_count}/{count}")
-        print(f"   失败: {len(failed_nodes)}")
-        if failed_nodes:
-            print(f"   失败节点: {', '.join(failed_nodes)}")
-        
-        if success_count > 0:
-            print("✅ 批量绑定完成")
-            return True
-        else:
-            print("❌ 批量绑定失败")
             return False
     
     def batch_join_domain(self, domain_id):
