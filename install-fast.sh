@@ -165,7 +165,22 @@ check_and_install_python311() {
         # 安装Python包
         if [ -n "$SUDO_PASSWORD" ]; then
             info "🔧 使用提供的密码自动安装Python 3.11..."
-            echo "$SUDO_PASSWORD" | sudo -S installer -pkg "$python_pkg" -target /
+            # 使用expect进行自动化sudo操作
+            if command -v expect >/dev/null 2>&1; then
+                expect << EOF
+spawn sudo installer -pkg "$python_pkg" -target /
+expect "Password:"
+send "$SUDO_PASSWORD\r"
+expect eof
+EOF
+            else
+                # 如果没有expect，使用管道方式并加延迟
+                printf "%s\n" "$SUDO_PASSWORD" | sudo -S installer -pkg "$python_pkg" -target / 2>/dev/null
+                if [ $? -ne 0 ]; then
+                    warning "⚠️ 自动密码输入失败，请手动输入密码"
+                    sudo installer -pkg "$python_pkg" -target /
+                fi
+            fi
         else
             info "🔧 安装Python 3.11 (需要管理员权限)..."
             sudo installer -pkg "$python_pkg" -target /
