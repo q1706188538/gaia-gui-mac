@@ -622,9 +622,47 @@ main() {
         
         # 第3步: 初始化从节点(复制主节点文件)
         info "📂 第3步: 初始化从节点(复制主节点文件)..."
+        
+        # 调试：检查配置文件是否存在
+        if [ ! -f "auto-deploy-config.json" ]; then
+            error "❌ 配置文件不存在: auto-deploy-config.json"
+            info "当前目录: $(pwd)"
+            info "目录内容:"
+            ls -la | head -10
+            exit 1
+        fi
+        
+        info "📋 配置文件内容预览:"
+        head -10 auto-deploy-config.json | sed 's/^/    /'
+        
         if ! $PYTHON3_CMD src/gaianet_gui.py --headless --init --config auto-deploy-config.json; then
             error "❌ 从节点初始化失败"
-            exit 1
+            
+            # 调试信息
+            info "🔍 调试信息:"
+            info "  - 主节点目录: $HOME/gaianet"
+            if [ -d "$HOME/gaianet" ]; then
+                info "  - 主节点存在: ✅"
+                info "  - 主节点内容:"
+                ls -la "$HOME/gaianet" | head -5 | sed 's/^/      /'
+            else
+                info "  - 主节点存在: ❌"
+            fi
+            
+            # 尝试直接使用脚本初始化
+            info "🔄 尝试直接使用部署脚本初始化..."
+            if [ -f "src/deploy_multinode_advanced.sh" ]; then
+                chmod +x src/deploy_multinode_advanced.sh
+                if src/deploy_multinode_advanced.sh init; then
+                    info "✅ 直接脚本初始化成功"
+                else
+                    error "❌ 直接脚本初始化也失败"
+                    exit 1
+                fi
+            else
+                error "❌ 部署脚本不存在"
+                exit 1
+            fi
         fi
         
         # 第4步: 启动所有节点
