@@ -489,77 +489,70 @@ create_nodes_config_for_full_auto_fast() {
     # 确保在正确的目录中执行
     cd "$INSTALL_DIR"
     
-    # 直接创建兼容deploy_multinode_advanced.sh的配置文件
-    cat > nodes_config.json << EOF
-{
-  "shared_services": {
-    "chat_port": 9000,
-    "embedding_port": 9001,
-    "auto_start": true
-  },
-  "nodes": [
-EOF
-
-    # 生成节点配置
-    for i in $(seq 1 $NODES_COUNT); do
-        local port=$((8080 + i - 1))
-        cat >> nodes_config.json << EOF
-    {
-      "name": "node$i",
-      "base_dir": "$HOME/gaianet_node$i",
-      "port": $port,
-      "local_only": false,
-      "force_rag": true,
-      "auto_start": true
-    }EOF
-        
-        # 如果不是最后一个节点，添加逗号
-        if [ $i -lt $NODES_COUNT ]; then
-            echo "," >> nodes_config.json
-        else
-            echo "" >> nodes_config.json
-        fi
-    done
-
-    cat >> nodes_config.json << EOF
-  ]
-}
-EOF
-
-    # 同时创建GUI需要的简化配置
-    $PYTHON3_CMD -c "
+    # 使用Python创建配置文件，避免shell语法问题
+    $PYTHON3_CMD << 'PYTHON_EOF'
 import json
+import os
 
-config = {
-    'auto_deploy': {
-        'init_nodes': True,
-        'start_nodes': True,
-        'bind_wallet': True
+nodes_count = int(os.environ.get('NODES_COUNT', '20'))
+domain_id = os.environ.get('DOMAIN_ID', '')
+home_dir = os.environ.get('HOME', '')
+
+# 创建部署脚本配置
+deploy_config = {
+    "shared_services": {
+        "chat_port": 9000,
+        "embedding_port": 9001,
+        "auto_start": True
     },
-    'wallet': {
-        'private_key': '',
-        'address': '',
-        'batch_bind': {
-            'enabled': True,
-            'start_node': 1,
-            'count': $NODES_COUNT
+    "nodes": []
+}
+
+for i in range(1, nodes_count + 1):
+    node = {
+        "name": f"node{i}",
+        "base_dir": f"{home_dir}/gaianet_node{i}",
+        "port": 8080 + i - 1,
+        "local_only": False,
+        "force_rag": True,
+        "auto_start": True
+    }
+    deploy_config["nodes"].append(node)
+
+with open('nodes_config.json', 'w') as f:
+    json.dump(deploy_config, f, indent=2)
+
+# 创建GUI配置
+gui_config = {
+    "auto_deploy": {
+        "init_nodes": True,
+        "start_nodes": True,
+        "bind_wallet": True
+    },
+    "wallet": {
+        "private_key": "",
+        "address": "",
+        "batch_bind": {
+            "enabled": True,
+            "start_node": 1,
+            "count": nodes_count
         },
-        'auto_join_domain': {
-            'enabled': True,
-            'domain_id': '$DOMAIN_ID'
+        "auto_join_domain": {
+            "enabled": True,
+            "domain_id": domain_id
         }
     },
-    'nodes': {
-        'base_path': '~/gaianet_node',
-        'count': $NODES_COUNT
+    "nodes": {
+        "base_path": "~/gaianet_node",
+        "count": nodes_count
     }
 }
 
 with open('auto-deploy-config.json', 'w') as f:
-    json.dump(config, f, indent=2, ensure_ascii=False)
-    
-print('✅ GUI配置文件已创建')
-"
+    json.dump(gui_config, f, indent=2)
+
+print("✅ 配置文件创建完成")
+PYTHON_EOF
     
     info "  ✅ 节点配置创建完成"
     info "  📁 创建了两个配置文件:"
