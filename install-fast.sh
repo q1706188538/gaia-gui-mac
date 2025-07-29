@@ -187,16 +187,33 @@ install_homebrew_and_python311() {
     if [ -n "$SUDO_PASSWORD" ]; then
         info "📝 使用提供的管理员密码进行自动安装..."
         
-        # 非交互模式安装Homebrew
-        export NONINTERACTIVE=1
+        # 验证密码
         echo "$SUDO_PASSWORD" | sudo -S echo "验证密码..." 2>/dev/null
         if [ $? -eq 0 ]; then
             info "✅ 密码验证成功"
-            # 使用非交互模式安装Homebrew
-            if echo "$SUDO_PASSWORD" | sudo -S /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" <<< $'\n'; then
+            
+            # 设置非交互模式环境变量
+            export NONINTERACTIVE=1
+            export CI=1
+            
+            # 创建临时脚本来处理Homebrew安装
+            local temp_script="/tmp/homebrew_install_$$.sh"
+            cat > "$temp_script" << 'HOMEBREW_SCRIPT'
+#!/bin/bash
+export NONINTERACTIVE=1
+export CI=1
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+HOMEBREW_SCRIPT
+            
+            chmod +x "$temp_script"
+            
+            # 使用当前用户身份运行（不使用sudo）
+            if "$temp_script"; then
                 info "✅ Homebrew安装完成"
+                rm -f "$temp_script"
             else
                 error "❌ Homebrew安装失败"
+                rm -f "$temp_script"
                 return 1
             fi
         else
@@ -224,14 +241,38 @@ install_homebrew_and_python311() {
     
     # 安装Python 3.11
     info "📦 使用新安装的Homebrew安装Python 3.11..."
-    if brew install python@3.11; then
-        info "✅ Python 3.11安装完成"
-        export PYTHON3_CMD="python3.11"
-        update_shell_config_for_python311
-        return 0
+    
+    # 如果有密码，可能需要用于某些brew操作
+    if [ -n "$SUDO_PASSWORD" ]; then
+        # 先尝试不使用sudo
+        if brew install python@3.11; then
+            info "✅ Python 3.11安装完成"
+            export PYTHON3_CMD="python3.11"
+            update_shell_config_for_python311
+            return 0
+        else
+            # 如果失败，尝试使用sudo辅助某些操作
+            info "🔄 尝试使用管理员权限安装Python 3.11..."
+            if echo "$SUDO_PASSWORD" | sudo -S brew install python@3.11 2>/dev/null || brew install python@3.11; then
+                info "✅ Python 3.11安装完成"
+                export PYTHON3_CMD="python3.11"
+                update_shell_config_for_python311
+                return 0
+            else
+                error "❌ Python 3.11安装失败"
+                return 1
+            fi
+        fi
     else
-        error "❌ Python 3.11安装失败"
-        return 1
+        if brew install python@3.11; then
+            info "✅ Python 3.11安装完成"
+            export PYTHON3_CMD="python3.11"
+            update_shell_config_for_python311
+            return 0
+        else
+            error "❌ Python 3.11安装失败"
+            return 1
+        fi
     fi
 }
 
